@@ -1,0 +1,63 @@
+import { describe, expect, it } from "vitest";
+import { haversineKm, humanizeSlug, municipalitySlug, normalizeEvent, rankEvents } from "../src/domain/events";
+
+describe("event normalization", () => {
+  it("normalizes a Socrata event", () => {
+    const event = normalizeEvent({
+      codi: "20260721001",
+      source_row_id: "row-abcd~1234",
+      denominaci: "Concert de Festa Major",
+      data_inici: "2026-07-24T00:00:00.000",
+      data_fi: "2026-07-24T00:00:00.000",
+      municipi: "agenda:ubicacions/barcelona/valles-occidental/terrassa",
+      comarca: "agenda:ubicacions/barcelona/valles-occidental",
+      gratuita: "Sí",
+      tags_mbits: "agenda:ambits/musica",
+      urlactivitat: "https://example.cat/event"
+    });
+    expect(event).toMatchObject({
+      code: "20260721001",
+      sourceRowId: "row-abcd~1234",
+      municipality: "Terrassa",
+      comarca: "Valles Occidental",
+      free: true,
+      sourceUrl: "https://example.cat/event"
+    });
+  });
+
+  it("rejects malformed records", () => {
+    expect(normalizeEvent({ denominaci: "Sense codi" })).toBeNull();
+  });
+});
+
+describe("event ranking", () => {
+  it("prefers a short festive event and rejects corrupt future years", () => {
+    const base = {
+      municipality: "Reus",
+      municipalitySlug: "reus",
+      comarca: "Baix Camp",
+      categories: [] as string[]
+    };
+    const ranked = rankEvents([
+      { ...base, code: "1", title: "Exposició permanent", startsAt: "2025-01-01", endsAt: "2026-12-31" },
+      { ...base, code: "2", title: "Concert de Festa Major", startsAt: "2026-07-24", endsAt: "2026-07-24", categories: ["concerts"] },
+      { ...base, code: "3", title: "Data corrupta", startsAt: "2024-01-01", endsAt: "2924-01-01" }
+    ], {
+      start: "2026-07-24T00:00:00.000",
+      end: "2026-07-26T23:59:59.999"
+    });
+    expect(ranked.map((event) => event.code)).toEqual(["2", "1"]);
+  });
+});
+
+describe("location helpers", () => {
+  it("calculates a plausible Barcelona to Terrassa distance", () => {
+    expect(haversineKm(41.387, 2.17, 41.563, 2.008)).toBeGreaterThan(20);
+    expect(haversineKm(41.387, 2.17, 41.563, 2.008)).toBeLessThan(30);
+  });
+
+  it("turns municipality text into a safe slug", () => {
+    expect(municipalitySlug("Sant Cugat del Vallès")).toBe("sant-cugat-del-valles");
+    expect(humanizeSlug("sant-cugat-del-valles")).toBe("Sant Cugat del Valles");
+  });
+});

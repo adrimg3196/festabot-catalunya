@@ -1,0 +1,4 @@
+interface:
+  display_name: "Telegram Festes Bot"
+  short_description: "Diseña bots Telegram para fiestas mayores"
+  default_prompt: "Use $telegram-festes-bot to design a zero-cost Telegram bot for Catalan festa major discovery."

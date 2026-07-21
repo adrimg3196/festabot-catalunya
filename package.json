@@ -1,0 +1,28 @@
+{
+  "name": "festabot-catalunya",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Bot de Telegram para descubrir fiestas, conciertos y cultura en Catalunya.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate:local": "wrangler d1 migrations apply festabot-catalunya --local",
+    "db:migrate:remote": "wrangler d1 migrations apply festabot-catalunya --remote"
+  },
+  "dependencies": {
+    "hono": "^4.10.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260721.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.112.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
