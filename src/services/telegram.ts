@@ -4,6 +4,34 @@ interface TelegramResponse<T> {
   ok: boolean;
   result?: T;
   description?: string;
+  error_code?: number;
+  parameters?: { retry_after?: number };
+}
+
+export class TelegramApiError extends Error {
+  constructor(
+    message: string,
+    readonly httpStatus: number,
+    readonly errorCode?: number,
+    readonly retryAfterSeconds?: number
+  ) {
+    super(message);
+    this.name = "TelegramApiError";
+  }
+}
+
+function safeMessageText(text: string): string {
+  if (text.length <= 4096) return text;
+  const plain = text
+    .replace(/<[^>]*>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"");
+  return `${plain.slice(0, 4000)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")}…`;
 }
 
 async function telegramCall<T>(env: Env, method: string, payload: Record<string, unknown>): Promise<T> {
@@ -13,9 +41,19 @@ async function telegramCall<T>(env: Env, method: string, payload: Record<string,
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(8_000)
   });
-  const data = (await response.json()) as TelegramResponse<T>;
+  let data: TelegramResponse<T>;
+  try {
+    data = (await response.json()) as TelegramResponse<T>;
+  } catch {
+    throw new TelegramApiError(`Telegram ${method} returned an invalid response`, response.status);
+  }
   if (!response.ok || !data.ok || data.result === undefined) {
-    throw new Error(`Telegram ${method} failed: ${data.description ?? response.status}`);
+    throw new TelegramApiError(
+      `Telegram ${method} failed: ${data.description ?? response.status}`,
+      response.status,
+      data.error_code,
+      data.parameters?.retry_after
+    );
   }
   return data.result;
 }
@@ -28,7 +66,7 @@ export async function sendMessage(
 ): Promise<unknown> {
   return telegramCall(env, "sendMessage", {
     chat_id: chatId,
-    text: text.slice(0, 4096),
+    text: safeMessageText(text),
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...(replyMarkup ? { reply_markup: replyMarkup } : {})
@@ -51,8 +89,8 @@ export async function answerInlineQuery(
   return telegramCall(env, "answerInlineQuery", {
     inline_query_id: inlineQueryId,
     results: results.slice(0, 20),
-    cache_time: 300,
-    is_personal: false,
+    cache_time: 60,
+    is_personal: true,
     next_offset: nextOffset
   });
 }
@@ -79,10 +117,29 @@ export async function configureTelegramBot(env: Env, webhookUrl: string): Promis
       { command: "capdesetmana", description: "Plans del cap de setmana" },
       { command: "aprop", description: "Plans a prop meu" },
       { command: "municipi", description: "Cercar per municipi" },
-      { command: "concerts", description: "Concerts i festes" },
+      { command: "concerts", description: "Música i concerts" },
+      { command: "festes", description: "Festes majors" },
+      { command: "artista", description: "Cercar artista o títol" },
       { command: "pla", description: "Crear una votació de plans" },
       { command: "privacitat", description: "Privacitat i dades" },
-      { command: "esborra_dades", description: "Eliminar les meves dades" }
+      { command: "esborra_dades", description: "Eliminar les meves dades" },
+      { command: "ajuda", description: "Veure totes les opcions" }
+    ]
+  });
+  await telegramCall(env, "setMyCommands", {
+    language_code: "es",
+    commands: [
+      { command: "hoy", description: "Qué hay hoy" },
+      { command: "finde", description: "Planes del fin de semana" },
+      { command: "cerca", description: "Planes cerca de mí" },
+      { command: "municipio", description: "Buscar por municipio" },
+      { command: "conciertos", description: "Conciertos" },
+      { command: "fiestas", description: "Fiestas mayores" },
+      { command: "artista", description: "Buscar artista o título" },
+      { command: "plan", description: "Crear una votación de planes" },
+      { command: "privacidad", description: "Privacidad y datos" },
+      { command: "borra_datos", description: "Eliminar mis datos" },
+      { command: "ayuda", description: "Ver todas las opciones" }
     ]
   });
   await telegramCall(env, "setWebhook", {

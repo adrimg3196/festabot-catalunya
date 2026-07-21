@@ -1,23 +1,28 @@
 import { formatDateRange, nextSevenDaysWindow, reminderTimeFor, todayWindow, weekendWindow } from "./domain/date";
 import { categoryLabel, escapeHtml, haversineKm } from "./domain/events";
 import { t } from "./i18n";
-import { createCorrection, type CorrectionType } from "./repositories/corrections";
-import { createReminder, listDueReminders, markReminderSent } from "./repositories/reminders";
+import { cleanupCorrections, createCorrection, type CorrectionType } from "./repositories/corrections";
+import { claimDueReminders, cleanupReminders, createReminder, markReminderFailed, markReminderRetry, markReminderSent } from "./repositories/reminders";
+import { cleanupProcessedUpdates } from "./repositories/updates";
 import { deleteUserData, ensureUser, getLanguage, setLanguage } from "./repositories/users";
 import { agendaSourceUrl, getEventByReference, getEvents, isEventReference, type AgendaQuery } from "./services/agenda";
-import { answerCallbackQuery, answerInlineQuery, sendMessage, sendPoll } from "./services/telegram";
+import { answerCallbackQuery, answerInlineQuery, sendMessage, sendPoll, TelegramApiError } from "./services/telegram";
 import type { Env, EventItem, Language, TelegramCallbackQuery, TelegramInlineQuery, TelegramMessage, TelegramUpdate } from "./types";
 
 function eventLine(event: EventItem, language: Language, index: number, origin?: { latitude: number; longitude: number }): string {
+  const labels = t(language);
   const date = formatDateRange(event.startsAt, event.endsAt, language);
   const distance = origin && event.latitude !== undefined && event.longitude !== undefined
     ? ` · ${haversineKm(origin.latitude, origin.longitude, event.latitude, event.longitude).toFixed(1)} km`
     : "";
   const free = event.free ? (language === "ca" ? " · Gratis" : " · Gratis") : "";
-  return `<b>${index + 1}. ${escapeHtml(event.title)}</b>\n${escapeHtml(event.municipality || event.comarca)} · ${escapeHtml(date)}${distance}${free}`;
+  const recurring = event.schedule && event.startsAt.slice(0, 10) !== event.endsAt.slice(0, 10)
+    ? ` · ⚠️ ${labels.longSchedule}`
+    : "";
+  return `<b>${index + 1}. ${escapeHtml(event.title)}</b>\n${escapeHtml(event.municipality || event.comarca)} · ${escapeHtml(date)}${distance}${free}${recurring}`;
 }
 
-function resultKeyboard(events: EventItem[], language: Language) {
+function resultKeyboard(events: EventItem[], language: Language, suggestedQuery: string, showMore: boolean) {
   const labels = t(language);
   return {
     inline_keyboard: [
@@ -25,8 +30,35 @@ function resultKeyboard(events: EventItem[], language: Language) {
         text: `${index + 1} · ${labels.details}`,
         callback_data: `detail:${event.sourceRowId ?? event.code}`
       }]),
-      [{ text: language === "ca" ? "Compartir en un grup" : "Compartir en un grupo", switch_inline_query: "" }]
+      ...(showMore ? [[{
+        text: language === "ca" ? "🔎 Més plans" : "🔎 Más planes",
+        switch_inline_query_current_chat: suggestedQuery
+      }]] : []),
+      [{ text: language === "ca" ? "Compartir en un grup" : "Compartir en un grupo", switch_inline_query: suggestedQuery }]
     ]
+  };
+}
+
+function discoveryKeyboard(language: Language) {
+  return {
+    inline_keyboard: [
+      [
+        { text: language === "ca" ? "📍 A prop meu" : "📍 Cerca de mí", callback_data: "quick:nearby" },
+        { text: language === "ca" ? "🎉 Avui" : "🎉 Hoy", callback_data: "quick:today" }
+      ],
+      [
+        { text: language === "ca" ? "🎵 Concerts" : "🎵 Conciertos", callback_data: "quick:concerts" },
+        { text: language === "ca" ? "🎊 Festes majors" : "🎊 Fiestas mayores", callback_data: "quick:festes" }
+      ]
+    ]
+  };
+}
+
+function locationKeyboard(language: Language) {
+  return {
+    keyboard: [[{ text: language === "ca" ? "📍 Compartir ubicació" : "📍 Compartir ubicación", request_location: true }]],
+    resize_keyboard: true,
+    one_time_keyboard: true
   };
 }
 
@@ -38,7 +70,14 @@ async function sendResults(
   origin?: { latitude: number; longitude: number }
 ): Promise<EventItem[]> {
   const labels = t(language);
-  const events = (await getEvents(query)).slice(0, 8);
+  let events: EventItem[];
+  try {
+    events = (await getEvents(query)).slice(0, 8);
+  } catch (error) {
+    console.error("Agenda query failed", { error: String(error) });
+    await sendMessage(env, chatId, labels.error);
+    return [];
+  }
   if (events.length === 0) {
     await sendMessage(env, chatId, `${labels.noResults}\n\n<a href="${agendaSourceUrl}">${labels.source}</a>`);
     return [];
@@ -48,7 +87,12 @@ async function sendResults(
     env,
     chatId,
     `🎊 <b>${labels.resultsTitle}</b>\n\n${body}\n\n<a href="${agendaSourceUrl}">${labels.source}</a>`,
-    resultKeyboard(events, language)
+    resultKeyboard(
+      events,
+      language,
+      query.municipality ?? query.query ?? "",
+      origin === undefined && Boolean(query.municipality || query.query)
+    )
   );
   return events;
 }
@@ -78,7 +122,7 @@ function detailKeyboard(event: EventItem, language: Language) {
   return {
     inline_keyboard: [
       firstRow,
-      ...(event.sourceUrl ? [[{ text: language === "ca" ? "Font oficial" : "Fuente oficial", url: event.sourceUrl }]] : [])
+      ...(event.sourceUrl ? [[{ text: language === "ca" ? "Més informació" : "Más información", url: event.sourceUrl }]] : [])
     ]
   };
 }
@@ -100,7 +144,7 @@ async function handleCommand(env: Env, message: TelegramMessage, language: Langu
       return;
     case "avui":
     case "hoy":
-      await sendResults(env, message.chat.id, language, { ...todayWindow(), municipality: argument || undefined, limit: 500 });
+      await sendResults(env, message.chat.id, language, { ...todayWindow(), municipality: argument || undefined, limit: 1000 });
       return;
     case "capdesetmana":
     case "finde":
@@ -110,21 +154,29 @@ async function handleCommand(env: Env, message: TelegramMessage, language: Langu
     case "conciertos":
       await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), municipality: argument || undefined, musicOnly: true, limit: 800 });
       return;
+    case "festes":
+    case "fiestas":
+      await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), municipality: argument || undefined, festiveOnly: true, limit: 800 });
+      return;
+    case "artista":
+    case "artist":
+      if (!argument) {
+        await sendMessage(env, message.chat.id, labels.missingSearch);
+        return;
+      }
+      await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), query: argument, musicOnly: true, limit: 800 });
+      return;
     case "municipi":
     case "municipio":
       if (!argument) {
         await sendMessage(env, message.chat.id, labels.missingMunicipality);
         return;
       }
-      await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), municipality: argument, query: argument, limit: 500 });
+      await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), municipality: argument, limit: 1000 });
       return;
     case "aprop":
     case "cerca":
-      await sendMessage(env, message.chat.id, labels.askLocation, {
-        keyboard: [[{ text: language === "ca" ? "📍 Compartir ubicació" : "📍 Compartir ubicación", request_location: true }]],
-        resize_keyboard: true,
-        one_time_keyboard: true
-      });
+      await sendMessage(env, message.chat.id, labels.askLocation, locationKeyboard(language));
       return;
     case "pla":
     case "plan": {
@@ -132,7 +184,14 @@ async function handleCommand(env: Env, message: TelegramMessage, language: Langu
         await sendMessage(env, message.chat.id, labels.missingMunicipality);
         return;
       }
-      const events = (await getEvents({ ...nextSevenDaysWindow(), municipality: argument, musicOnly: true, limit: 300 })).slice(0, 3);
+      let events: EventItem[];
+      try {
+        events = (await getEvents({ ...nextSevenDaysWindow(), municipality: argument, musicOnly: true, limit: 500 })).slice(0, 3);
+      } catch (error) {
+        console.error("Plan poll query failed", { error: String(error) });
+        await sendMessage(env, message.chat.id, labels.error);
+        return;
+      }
       if (events.length < 2) {
         await sendMessage(env, message.chat.id, labels.noResults);
         return;
@@ -152,10 +211,10 @@ async function handleCommand(env: Env, message: TelegramMessage, language: Langu
     case "help":
     case "ajuda":
     case "ayuda":
-      await sendMessage(env, message.chat.id, `${labels.welcome}\n\n/avui · /capdesetmana · /aprop · /municipi · /concerts · /pla · /privacitat`);
+      await sendMessage(env, message.chat.id, `${labels.welcome}\n\n/avui · /capdesetmana · /aprop · /municipi · /concerts · /festes · /artista · /pla · /privacitat`, discoveryKeyboard(language));
       return;
     default:
-      await sendMessage(env, message.chat.id, `${labels.welcome}\n\n/avui · /capdesetmana · /aprop · /municipi · /concerts · /pla`);
+      await sendMessage(env, message.chat.id, `${labels.welcome}\n\n/avui · /capdesetmana · /aprop · /municipi · /concerts · /festes · /artista · /pla`, discoveryKeyboard(language));
   }
 }
 
@@ -167,6 +226,11 @@ async function handleMessage(env: Env, message: TelegramMessage): Promise<void> 
 
   if (message.location) {
     const origin = message.location;
+    if (!Number.isFinite(origin.latitude) || origin.latitude < -90 || origin.latitude > 90
+      || !Number.isFinite(origin.longitude) || origin.longitude < -180 || origin.longitude > 180) {
+      await sendMessage(env, message.chat.id, labels.invalidLocation);
+      return;
+    }
     await sendResults(env, message.chat.id, language, {
       ...nextSevenDaysWindow(),
       latitude: origin.latitude,
@@ -187,7 +251,7 @@ async function handleMessage(env: Env, message: TelegramMessage): Promise<void> 
   }
 
   if (text.length <= 80) {
-    await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), municipality: text, query: text, limit: 500 });
+    await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), query: text, limit: 1000 });
     return;
   }
   await sendMessage(env, message.chat.id, labels.missingMunicipality);
@@ -204,7 +268,23 @@ async function handleCallback(env: Env, callback: TelegramCallbackQuery): Promis
     const selected = data.endsWith("es") ? "es" : "ca";
     await setLanguage(env, userId, selected);
     await answerCallbackQuery(env, callback.id, selected === "ca" ? "Idioma: català" : "Idioma: castellano");
-    if (chatId) await sendMessage(env, chatId, t(selected).welcome);
+    if (chatId) await sendMessage(env, chatId, t(selected).welcome, discoveryKeyboard(selected));
+    return;
+  }
+
+  if (data.startsWith("quick:")) {
+    await answerCallbackQuery(env, callback.id);
+    if (!chatId) return;
+    const quickAction = data.slice("quick:".length);
+    if (quickAction === "nearby") {
+      await sendMessage(env, chatId, labels.askLocation, locationKeyboard(language));
+    } else if (quickAction === "today") {
+      await sendResults(env, chatId, language, { ...todayWindow(), limit: 1000 });
+    } else if (quickAction === "concerts") {
+      await sendResults(env, chatId, language, { ...nextSevenDaysWindow(), musicOnly: true, limit: 1000 });
+    } else if (quickAction === "festes") {
+      await sendResults(env, chatId, language, { ...nextSevenDaysWindow(), festiveOnly: true, limit: 1000 });
+    }
     return;
   }
 
@@ -213,7 +293,14 @@ async function handleCallback(env: Env, callback: TelegramCallbackQuery): Promis
     await answerCallbackQuery(env, callback.id);
     return;
   }
-  const event = await getEventByReference(reference);
+  let event: EventItem | null;
+  try {
+    event = await getEventByReference(reference);
+  } catch (error) {
+    console.error("Agenda detail query failed", { error: String(error) });
+    await answerCallbackQuery(env, callback.id, labels.error);
+    return;
+  }
   if (!event) {
     await answerCallbackQuery(env, callback.id, labels.noResults);
     return;
@@ -244,10 +331,11 @@ async function handleCallback(env: Env, callback: TelegramCallbackQuery): Promis
     return;
   }
   if (action === "fix" && ["cancelled", "time", "place", "other"].includes(extra ?? "")) {
-    await createCorrection(env, userId, event.code, extra as CorrectionType);
+    await ensureUser(env, userId, language);
+    await createCorrection(env, userId, event.sourceRowId ?? event.code, extra as CorrectionType);
     await answerCallbackQuery(env, callback.id, labels.reportSaved);
     if (env.ADMIN_TELEGRAM_ID) {
-      await sendMessage(env, env.ADMIN_TELEGRAM_ID, `⚠️ Correcció pendent · ${escapeHtml(event.title)} · ${extra} · usuari ${userId}`);
+      await sendMessage(env, env.ADMIN_TELEGRAM_ID, `⚠️ Correcció pendent · ${escapeHtml(event.title)} · ${extra}`);
     }
     return;
   }
@@ -256,18 +344,27 @@ async function handleCallback(env: Env, callback: TelegramCallbackQuery): Promis
 
 async function handleInlineQuery(env: Env, inlineQuery: TelegramInlineQuery): Promise<void> {
   const language = await getLanguage(env, inlineQuery.from.id);
-  const queryText = inlineQuery.query.trim();
+  const queryText = inlineQuery.query.trim().slice(0, 80);
   const window = nextSevenDaysWindow();
-  const events = (await getEvents({
-    ...window,
-    municipality: queryText || undefined,
-    query: queryText || undefined,
-    latitude: inlineQuery.location?.latitude,
-    longitude: inlineQuery.location?.longitude,
-    radiusKm: inlineQuery.location ? 40 : undefined,
-    musicOnly: true,
-    limit: queryText ? 500 : 800
-  })).slice(0, 12);
+  const parsedOffset = Number.parseInt(inlineQuery.offset, 10);
+  const offset = Number.isSafeInteger(parsedOffset) && parsedOffset >= 0 ? Math.min(parsedOffset, 960) : 0;
+  let allEvents: EventItem[];
+  try {
+    allEvents = await getEvents({
+      ...window,
+      query: queryText || undefined,
+      latitude: inlineQuery.location?.latitude,
+      longitude: inlineQuery.location?.longitude,
+      radiusKm: inlineQuery.location ? 40 : undefined,
+      musicOnly: queryText ? undefined : true,
+      limit: 1000
+    });
+  } catch (error) {
+    console.error("Inline agenda query failed", { error: String(error) });
+    await answerInlineQuery(env, inlineQuery.id, []);
+    return;
+  }
+  const events = allEvents.slice(offset, offset + 12);
 
   const results = events.map((event) => ({
     type: "article",
@@ -281,7 +378,8 @@ async function handleInlineQuery(env: Env, inlineQuery: TelegramInlineQuery): Pr
     },
     reply_markup: detailKeyboard(event, language)
   }));
-  await answerInlineQuery(env, inlineQuery.id, results);
+  const nextOffset = allEvents.length > offset + events.length ? String(offset + events.length) : "";
+  await answerInlineQuery(env, inlineQuery.id, results, nextOffset);
 }
 
 export async function handleUpdate(env: Env, update: TelegramUpdate): Promise<void> {
@@ -295,14 +393,29 @@ export async function handleUpdate(env: Env, update: TelegramUpdate): Promise<vo
 }
 
 export async function sendDueReminders(env: Env): Promise<void> {
-  const reminders = await listDueReminders(env, new Date().toISOString());
+  const now = new Date();
+  const reminders = await claimDueReminders(env, now.toISOString());
   for (const reminder of reminders) {
     const url = reminder.event_url ? `\n<a href="${escapeHtml(reminder.event_url)}">Obrir la font oficial</a>` : "";
     try {
       await sendMessage(env, reminder.chat_id, `🔔 <b>Recordatori de festa</b>\n\n${escapeHtml(reminder.event_title)}${url}`);
-      await markReminderSent(env, reminder.id);
+      await markReminderSent(env, reminder.id, reminder.claim_token);
     } catch (error) {
-      console.error("Reminder delivery failed", { reminderId: reminder.id, error: String(error) });
+      const description = error instanceof Error ? error.message : String(error);
+      const telegramCode = error instanceof TelegramApiError ? (error.errorCode ?? error.httpStatus) : undefined;
+      const terminal = telegramCode === 400 || telegramCode === 403 || reminder.attempts >= 5;
+      if (terminal) {
+        await markReminderFailed(env, reminder.id, reminder.claim_token, description);
+      } else {
+        const requestedDelay = error instanceof TelegramApiError ? error.retryAfterSeconds : undefined;
+        const backoffSeconds = requestedDelay ?? Math.min(21_600, 300 * 2 ** Math.max(0, reminder.attempts - 1));
+        await markReminderRetry(env, reminder.id, reminder.claim_token, new Date(now.getTime() + backoffSeconds * 1000).toISOString(), description);
+      }
+      console.error("Reminder delivery failed", { terminal, attempt: reminder.attempts, error: description });
     }
+  }
+
+  if (now.getUTCHours() === 2 && now.getUTCMinutes() < 5) {
+    await Promise.all([cleanupReminders(env), cleanupCorrections(env), cleanupProcessedUpdates(env)]);
   }
 }

@@ -2,6 +2,7 @@ export type Language = "ca" | "es";
 
 export interface Env {
   DB: D1Database;
+  USER_RATE_LIMITER: RateLimit;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
   ADMIN_TELEGRAM_ID?: string;
@@ -60,6 +61,7 @@ export interface InlineKeyboardButton {
   callback_data?: string;
   url?: string;
   switch_inline_query?: string;
+  switch_inline_query_current_chat?: string;
 }
 
 export interface ReplyMarkup {

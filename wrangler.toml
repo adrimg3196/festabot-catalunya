@@ -14,3 +14,10 @@ database_id = "REPLACE_AFTER_D1_CREATE"
 [triggers]
 crons = ["*/5 * * * *"]
 
+[[ratelimits]]
+name = "USER_RATE_LIMITER"
+namespace_id = "741826103"
+
+[ratelimits.simple]
+limit = 30
+period = 60

@@ -29,10 +29,15 @@ export function humanizeSlug(value: string): string {
     .join(" ");
 }
 
-function safeCoordinate(value?: string): number | undefined {
+function safeCoordinate(value: string | undefined, minimum: number, maximum: number): number | undefined {
   if (!value) return undefined;
   const coordinate = Number(value);
-  return Number.isFinite(coordinate) ? coordinate : undefined;
+  return Number.isFinite(coordinate) && coordinate >= minimum && coordinate <= maximum ? coordinate : undefined;
+}
+
+function boundedText(value: string | undefined, maxLength: number): string | undefined {
+  const text = value?.trim();
+  return text ? text.slice(0, maxLength) : undefined;
 }
 
 function safeUrl(...values: Array<string | undefined>): string | undefined {
@@ -52,6 +57,8 @@ export function normalizeEvent(raw: SocrataEvent): EventItem | null {
   if (!raw.codi || !/^\d{5,20}$/.test(raw.codi) || !raw.denominaci || !raw.data_inici || !raw.data_fi) {
     return null;
   }
+  const title = boundedText(raw.denominaci, 300);
+  if (!title) return null;
 
   const municipalitySlug = slugTail(raw.municipi);
   const comarcaSlug = slugTail(raw.comarca);
@@ -61,25 +68,25 @@ export function normalizeEvent(raw: SocrataEvent): EventItem | null {
     .filter(Boolean);
 
   return {
-    sourceRowId: raw.source_row_id,
-    sourceUpdatedAt: raw.source_updated_at,
+    sourceRowId: raw.source_row_id && /^row-[A-Za-z0-9._~-]{5,50}$/.test(raw.source_row_id) ? raw.source_row_id : undefined,
+    sourceUpdatedAt: boundedText(raw.source_updated_at, 40),
     code: raw.codi,
-    title: raw.denominaci.trim(),
+    title,
     startsAt: raw.data_inici,
     endsAt: raw.data_fi,
-    schedule: raw.horari?.trim() || undefined,
+    schedule: boundedText(raw.horari, 1200),
     free: raw.gratuita ? /^(sí|si|yes)$/i.test(raw.gratuita.trim()) : undefined,
-    municipality: raw.localitat?.trim() || humanizeSlug(municipalitySlug),
+    municipality: boundedText(raw.localitat, 120) || humanizeSlug(municipalitySlug),
     municipalitySlug,
     comarca: humanizeSlug(comarcaSlug),
-    venue: raw.espai?.trim() || undefined,
-    address: raw.adre_a?.trim() || undefined,
-    latitude: safeCoordinate(raw.latitud),
-    longitude: safeCoordinate(raw.longitud),
-    categories,
+    venue: boundedText(raw.espai, 200),
+    address: boundedText(raw.adre_a, 300),
+    latitude: safeCoordinate(raw.latitud, -90, 90),
+    longitude: safeCoordinate(raw.longitud, -180, 180),
+    categories: categories.slice(0, 30),
     sourceUrl: safeUrl(raw.urlactivitat, raw.url, raw.enllac1_url, raw.linkbotoentrades)
       ?? `https://agenda.cultura.gencat.cat/content/agenda/ca/activitat.html/${raw.codi}/x`,
-    ticketInfo: raw.entrades?.trim() || undefined
+    ticketInfo: boundedText(raw.entrades, 1200)
   };
 }
 

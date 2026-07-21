@@ -28,6 +28,21 @@ describe("event normalization", () => {
   it("rejects malformed records", () => {
     expect(normalizeEvent({ denominaci: "Sense codi" })).toBeNull();
   });
+
+  it("bounds untrusted text and rejects impossible coordinates", () => {
+    const event = normalizeEvent({
+      codi: "20260721002",
+      denominaci: "X".repeat(500),
+      data_inici: "2026-07-24T00:00:00.000",
+      data_fi: "2026-07-24T00:00:00.000",
+      municipi: "agenda:ubicacions/barcelona/barcelones/barcelona",
+      latitud: "120",
+      longitud: "240"
+    });
+    expect(event?.title).toHaveLength(300);
+    expect(event?.latitude).toBeUndefined();
+    expect(event?.longitude).toBeUndefined();
+  });
 });
 
 describe("event ranking", () => {

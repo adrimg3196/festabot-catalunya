@@ -2,6 +2,7 @@ import { normalizeEvent, municipalitySlug, rankEvents, type RankContext } from "
 import type { EventItem, SocrataEvent } from "../types";
 
 const DATASET_ENDPOINT = "https://analisi.transparenciacatalunya.cat/resource/rhpv-yr4f.json";
+const CATALONIA_CONDITION = "(municipi like 'agenda:ubicacions/barcelona/%' OR municipi like 'agenda:ubicacions/girona/%' OR municipi like 'agenda:ubicacions/lleida/%' OR municipi like 'agenda:ubicacions/tarragona/%')";
 const SELECT_FIELDS = [
   ":id as source_row_id",
   ":updated_at as source_updated_at",
@@ -31,6 +32,7 @@ const SELECT_FIELDS = [
 export interface AgendaQuery extends RankContext {
   municipality?: string;
   musicOnly?: boolean;
+  festiveOnly?: boolean;
   limit?: number;
 }
 
@@ -38,19 +40,62 @@ function escapeLiteral(value: string): string {
   return value.replace(/'/g, "''");
 }
 
+function validLatitude(value: number | undefined): value is number {
+  return value !== undefined && Number.isFinite(value) && value >= -90 && value <= 90;
+}
+
+function validLongitude(value: number | undefined): value is number {
+  return value !== undefined && Number.isFinite(value) && value >= -180 && value <= 180;
+}
+
 export async function getEvents(query: AgendaQuery): Promise<EventItem[]> {
   const conditions = [
     `data_inici <= '${escapeLiteral(query.end)}'`,
-    `data_fi >= '${escapeLiteral(query.start)}'`
+    `data_fi >= '${escapeLiteral(query.start)}'`,
+    CATALONIA_CONDITION
   ];
 
   if (query.municipality) {
     const slug = municipalitySlug(query.municipality);
-    if (slug) conditions.push(`municipi like '%/${escapeLiteral(slug)}'`);
+    if (!slug) return [];
+    conditions.push(`municipi like '%/${escapeLiteral(slug)}'`);
+  }
+
+  if (query.query) {
+    const search = query.query.trim().toLocaleLowerCase("ca-ES").slice(0, 80);
+    const slug = municipalitySlug(search);
+    if (search) {
+      const literal = escapeLiteral(search);
+      const textConditions = [
+        `lower(denominaci) like '%${literal}%'`,
+        `lower(localitat) like '%${literal}%'`,
+        `lower(espai) like '%${literal}%'`
+      ];
+      if (slug) textConditions.push(`municipi like '%/${escapeLiteral(slug)}'`);
+      conditions.push(`(${textConditions.join(" OR ")})`);
+    }
   }
 
   if (query.musicOnly) {
-    conditions.push("(tags_mbits like '%musica%' OR tags_categor_es like '%concerts%' OR tags_categor_es like '%festes%' OR tags_categor_es like '%festivals%')");
+    conditions.push("(tags_mbits like '%/musica%' OR tags_categor_es like '%/concerts%')");
+  }
+
+  if (query.festiveOnly) {
+    conditions.push("(lower(denominaci) like '%festa major%' OR lower(denominaci) like '%fiesta mayor%' OR tags_categor_es like '%/festes%')");
+  }
+
+  if (validLatitude(query.latitude) && validLongitude(query.longitude)) {
+    const radiusKm = Math.min(Math.max(query.radiusKm ?? 25, 1), 100);
+    const coarseLatitude = Math.round(query.latitude * 100) / 100;
+    const coarseLongitude = Math.round(query.longitude * 100) / 100;
+    const latitudeDelta = radiusKm / 110.574;
+    const longitudeDelta = radiusKm / Math.max(11.132, 111.32 * Math.cos(coarseLatitude * Math.PI / 180));
+    const minLatitude = Math.max(-90, coarseLatitude - latitudeDelta).toFixed(6);
+    const maxLatitude = Math.min(90, coarseLatitude + latitudeDelta).toFixed(6);
+    const minLongitude = Math.max(-180, coarseLongitude - longitudeDelta).toFixed(6);
+    const maxLongitude = Math.min(180, coarseLongitude + longitudeDelta).toFixed(6);
+    conditions.push(`latitud between ${minLatitude} and ${maxLatitude}`);
+    conditions.push(`longitud between ${minLongitude} and ${maxLongitude}`);
   }
 
   const params = new URLSearchParams({
@@ -61,7 +106,8 @@ export async function getEvents(query: AgendaQuery): Promise<EventItem[]> {
   });
   const response = await fetch(`${DATASET_ENDPOINT}?${params.toString()}`, {
     headers: { Accept: "application/json" },
-    cf: { cacheEverything: true, cacheTtl: 900 }
+    cf: { cacheEverything: true, cacheTtl: 900 },
+    signal: AbortSignal.timeout(6_000)
   });
 
   if (!response.ok) {
@@ -85,9 +131,10 @@ export function isEventReference(value: string): boolean {
 
 export async function getEventByReference(reference: string): Promise<EventItem | null> {
   if (!isEventReference(reference)) return null;
-  const where = reference.startsWith("row-")
+  const referenceCondition = reference.startsWith("row-")
     ? `:id = '${escapeLiteral(reference)}'`
     : `codi = ${reference}`;
+  const where = `${referenceCondition} AND ${CATALONIA_CONDITION}`;
   const params = new URLSearchParams({
     "$select": SELECT_FIELDS,
     "$where": where,
@@ -95,7 +142,8 @@ export async function getEventByReference(reference: string): Promise<EventItem 
   });
   const response = await fetch(`${DATASET_ENDPOINT}?${params.toString()}`, {
     headers: { Accept: "application/json" },
-    cf: { cacheEverything: true, cacheTtl: 1800 }
+    cf: { cacheEverything: true, cacheTtl: 1800 },
+    signal: AbortSignal.timeout(6_000)
   });
   if (!response.ok) throw new Error(`Agenda API returned ${response.status}`);
   const payload: unknown = await response.json();
