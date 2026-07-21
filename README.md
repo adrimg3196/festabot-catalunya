@@ -1,6 +1,10 @@
 # FestaBot Catalunya
 
+![Icono de FestaBot Catalunya](assets/festabot-avatar.png)
+
 Bot de Telegram para descubrir fiestas, conciertos y actividades culturales de Catalunya. El producto funciona íntegramente dentro de Telegram y consulta la API pública de la Agenda Cultural de la Generalitat.
+
+Bot oficial: [@FestaCatalunyaBot](https://t.me/FestaCatalunyaBot)
 
 ## Funciones del MVP
 
@@ -56,4 +60,3 @@ La ubicación compartida se usa solo en memoria para calcular distancias y no se
 
 - [Agenda Cultural de Catalunya](https://agenda.cultura.gencat.cat/)
 - [Dataset abierto](https://analisi.transparenciacatalunya.cat/d/rhpv-yr4f)
-
