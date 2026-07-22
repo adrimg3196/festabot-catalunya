@@ -9,7 +9,7 @@ enabled = true
 [[d1_databases]]
 binding = "DB"
 database_name = "festabot-catalunya"
-database_id = "REPLACE_AFTER_D1_CREATE"
+database_id = "b26c0105-4092-4474-a607-ecfaff1474f2"
 
 [triggers]
 crons = ["*/5 * * * *"]
