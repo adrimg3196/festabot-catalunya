@@ -5,6 +5,7 @@ export interface Env {
   USER_RATE_LIMITER: RateLimit;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
+  PROGRAM_SYNC_SECRET?: string;
   ADMIN_TELEGRAM_ID?: string;
 }
 
@@ -80,6 +81,10 @@ export interface SocrataEvent {
   data_inici?: string;
   data_fi?: string;
   data_creacio?: string;
+  subt_tol?: string;
+  descripcio?: string;
+  descripcio_html?: string;
+  documents?: string;
   horari?: string;
   gratuita?: string;
   municipi?: string;
@@ -103,6 +108,9 @@ export interface EventItem {
   sourceUpdatedAt?: string;
   code: string;
   title: string;
+  subtitle?: string;
+  description?: string;
+  programDocumentUrls?: string[];
   startsAt: string;
   endsAt: string;
   schedule?: string;

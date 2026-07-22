@@ -66,12 +66,36 @@ describe("Agenda Cultural queries", () => {
       return Response.json([officialRow({ denominaci: "Festa Major de Barcelona", tags_mbits: "agenda:ambits/tradicional-i-popular", tags_categor_es: "agenda:categories/festes" })]);
     }));
 
-    await getEvents({ ...window, festiveOnly: true });
+    await getEvents({ ...window, festaMajorOnly: true });
     const where = new URL(requestedUrl).searchParams.get("$where") ?? "";
 
-    expect(where).toContain("lower(denominaci) like '%festa major%'");
-    expect(where).toContain("tags_categor_es like '%/festes%'");
+    expect(where).toContain("lower(denominaci) like 'festa major%'");
+    expect(where).not.toContain("lower(descripcio)");
+    expect(where).not.toContain("tags_categor_es like '%/festes%'");
     expect(where).toContain("municipi like 'agenda:ubicacions/barcelona/%'");
+  });
+
+  it("keeps listings light and fetches rich program fields with a short cache", async () => {
+    const requests: Array<{ url: string; cacheTtl: number | undefined }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const cloudflare = (init as RequestInit & { cf?: { cacheTtl?: number } } | undefined)?.cf;
+      requests.push({ url: String(input), cacheTtl: cloudflare?.cacheTtl });
+      return Response.json([officialRow({
+        descripcio: "Programa complet",
+        descripcio_html: "<p>Programa complet</p>"
+      })]);
+    }));
+
+    await getEvents({ ...window, municipality: "Barcelona" });
+    const detail = await getEventByReference("20260721001");
+    await getEventByReference("20260721001", { fresh: true });
+
+    const listSelect = new URL(requests[0]?.url ?? "").searchParams.get("$select") ?? "";
+    const detailSelect = new URL(requests[1]?.url ?? "").searchParams.get("$select") ?? "";
+    expect(listSelect).not.toContain("descripcio");
+    expect(detailSelect).toContain("descripcio_html");
+    expect(detail?.description).toBe("Programa complet");
+    expect(requests.map((request) => request.cacheTtl)).toEqual([300, 60, 0]);
   });
 
   it("looks up duplicate event locations by the exact Socrata row id", async () => {
@@ -87,6 +111,8 @@ describe("Agenda Cultural queries", () => {
     expect(event?.sourceRowId).toBe("row-k7cm_h6cw~nawu");
     expect(where).toContain(":id = 'row-k7cm_h6cw~nawu'");
     expect(where).toContain("agenda:ubicacions/barcelona/%");
+    expect(new URL(requestedUrl).searchParams.get("$select")).toContain("descripcio");
+    expect(new URL(requestedUrl).searchParams.get("$order")).toBe(":updated_at DESC");
     expect(isEventReference("row-k7cm_h6cw~nawu")).toBe(true);
     expect(isEventReference("row-' OR 1=1")).toBe(false);
   });

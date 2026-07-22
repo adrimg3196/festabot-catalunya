@@ -44,6 +44,15 @@ export function nextSevenDaysWindow(now = new Date()): DateWindow {
   };
 }
 
+export function upcomingWindow(days = 120, now = new Date()): DateWindow {
+  const boundedDays = Math.min(Math.max(Math.trunc(days), 1), 366);
+  const startDay = madridDateString(now);
+  return {
+    start: `${startDay}T00:00:00.000`,
+    end: `${addCalendarDays(startDay, boundedDays - 1)}T23:59:59.999`
+  };
+}
+
 export function weekendWindow(now = new Date()): DateWindow {
   const today = madridDateString(now);
   const [year, month, day] = today.split("-").map(Number);
@@ -99,4 +108,3 @@ export function reminderTimeFor(start: string, now = new Date()): string {
   }
   return new Date(now.getTime() + 60 * 60 * 1000).toISOString();
 }
-

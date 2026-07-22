@@ -13,7 +13,9 @@ En producción: [@FestaCatalunyaBot](https://t.me/FestaCatalunyaBot) · [estado 
 - `/aprop`: búsqueda por ubicación temporal, sin almacenarla.
 - `/municipi <nom>`: búsqueda para los próximos siete días.
 - `/concerts [municipi]`: música y conciertos.
-- `/festes [municipi]`: fiestas mayores y fiestas populares.
+- `/festes [municipi]`: lista de fiestas o programa directo cuando se indica un municipio.
+- `/programa <municipi>`: programación publicada de la Fiesta Mayor dentro de Telegram, con páginas y actualización manual.
+- También se puede escribir solo el municipio —por ejemplo, `Blanes`— para abrir directamente su Fiesta Mayor si está publicada.
 - `/artista <nom>`: búsqueda por artista o título.
 - `/pla <municipi>`: encuesta con tres planes para un grupo.
 - Modo inline para compartir actividades en cualquier chat.
@@ -23,10 +25,12 @@ En producción: [@FestaCatalunyaBot](https://t.me/FestaCatalunyaBot) · [estado 
 ## Arquitectura de coste cero
 
 - Cloudflare Worker: webhook y lógica del bot.
-- Cloudflare D1: idioma, recordatorios y correcciones.
+- Cloudflare D1: idioma, recordatorios, correcciones y programas oficiales ya procesados.
 - Rate Limiting de Cloudflare: protección por usuario frente a abuso.
 - Telegram Bot API: única interfaz de usuario.
-- Socrata `rhpv-yr4f`: fuente oficial consultada en tiempo real y cacheada.
+- Socrata `rhpv-yr4f`: índice oficial consultado en tiempo real.
+- GitHub Actions + `unpdf`: cada 30 minutos extraen gratuitamente el texto de los PDF oficiales fuera de las peticiones y lo sincronizan con D1.
+- Caché máxima de cinco minutos para listados; `/programa` y `🔄 Actualitza` vuelven a consultar la revisión de la fuente oficial.
 
 No se utiliza ningún modelo de IA ni API de pago en producción.
 
@@ -35,15 +39,17 @@ El despliegue actual usa únicamente cuotas gratuitas. El coste cero depende de 
 ## Estado de producción
 
 - Worker y cron publicados en Cloudflare.
-- D1 alojada con jurisdicción de la Unión Europea y las tres migraciones aplicadas.
-- Token del bot, secreto del webhook e identificador de administración almacenados como secretos cifrados de Cloudflare, nunca en Git.
+- D1 alojada con jurisdicción de la Unión Europea y las cuatro migraciones aplicadas.
+- Tokens del bot, webhook y sincronización almacenados como secretos cifrados de Cloudflare y GitHub, nunca en Git.
 - Webhook activo en `/telegram/webhook`, sin errores ni actualizaciones pendientes al desplegar.
 - Perfil, avatar, comandos en catalán y castellano y modo inline habilitados en Telegram.
-- Prueba real superada: `/start` muestra el selector de idioma y `/municipi Barcelona` devuelve planes de la fuente oficial.
+- Prueba real superada: escribir solo `Blanes` muestra `Programa oficial · 1/2`, `Següent` abre la segunda página y `🔄 Actualitza` renueva la comprobación sin salir de Telegram.
 
 ## Cobertura actual
 
-El catálogo inicial procede de la Agenda Cultural de Catalunya y se limita a ubicaciones de las cuatro provincias catalanas. Es una fuente oficial centralizada, pero no garantiza que todos los ayuntamientos publiquen allí toda su programación. Cada resultado enlaza a su fuente y el bot permite comunicar correcciones; se ampliarán adaptadores municipales sin cambiar la interfaz de Telegram.
+El catálogo inicial procede de la Agenda Cultural de Catalunya y se limita a ubicaciones de las cuatro provincias catalanas. Cuando la ficha enlaza un PDF oficial con texto, la sincronización automática lo extrae y el Worker lo pagina para mostrar el programa dentro del chat; el enlace queda solo como referencia opcional. Si todavía no hay un documento extraíble, el bot identifica claramente el contenido como «resumen oficial publicado», muestra la fecha de modificación y permite volver a consultarlo sin salir de Telegram.
+
+La Agenda central es una fuente oficial, pero algunas fichas son resúmenes y no garantizan que el ayuntamiento haya publicado allí todos los actos o cambios de última hora. La siguiente capa de cobertura serán adaptadores municipales para API, ICS, HTML y PDF oficiales, manteniendo la Agenda como índice y respaldo.
 
 ## Desarrollo
 
@@ -62,13 +68,15 @@ npm run dev
 3. Sustituir `database_id` en `wrangler.toml`.
 4. Aplicar migraciones con `npm run db:migrate:remote`.
 5. Hacer un primer despliegue con `npm run deploy`.
-6. Guardar los dos secretos obligatorios con `npx wrangler secret put`:
+6. Guardar los tres secretos obligatorios con `npx wrangler secret put`:
    - `TELEGRAM_BOT_TOKEN`
    - `TELEGRAM_WEBHOOK_SECRET`
+   - `PROGRAM_SYNC_SECRET`
 7. Opcionalmente, añadir `ADMIN_TELEGRAM_ID` para recibir avisos privados sobre correcciones.
 8. Volver a desplegar con `npm run deploy`.
-9. Configurar comandos y modo inline en BotFather y registrar el webhook exacto `https://festabot-catalunya.adrimg3196.workers.dev/telegram/webhook` mediante Telegram Bot API.
-10. Verificar `/health`, `getWebhookInfo` y que `npm run db:migrate:remote` no tenga migraciones pendientes.
+9. Guardar el mismo `PROGRAM_SYNC_SECRET` como secreto del repositorio de GitHub para el workflow `sync-programs.yml`.
+10. Configurar comandos y modo inline en BotFather y registrar el webhook exacto `https://festabot-catalunya.adrimg3196.workers.dev/telegram/webhook` mediante Telegram Bot API.
+11. Verificar `/health`, `getWebhookInfo`, el workflow de sincronización y que `npm run db:migrate:remote` no tenga migraciones pendientes.
 
 Nunca se debe guardar el token de Telegram en el repositorio.
 

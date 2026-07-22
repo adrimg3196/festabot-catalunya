@@ -13,6 +13,7 @@ describe("event normalization", () => {
       comarca: "agenda:ubicacions/barcelona/valles-occidental",
       gratuita: "Sí",
       tags_mbits: "agenda:ambits/musica",
+      descripcio_html: "<p><a href=\"https://ajuntament.cat/programa-2026.pdf\">Programa</a> <a href=\"https://ajuntament.cat/cartell-2025.pdf\">Antic</a> &amp; activitats</p><ul><li>Pregó</li><li>Concert</li></ul><script>ignora'm</script>",
       urlactivitat: "https://example.cat/event"
     });
     expect(event).toMatchObject({
@@ -21,6 +22,8 @@ describe("event normalization", () => {
       municipality: "Terrassa",
       comarca: "Valles Occidental",
       free: true,
+      description: "Programa Antic & activitats\n\n• Pregó\n• Concert",
+      programDocumentUrls: ["https://ajuntament.cat/programa-2026.pdf"],
       sourceUrl: "https://example.cat/event"
     });
   });

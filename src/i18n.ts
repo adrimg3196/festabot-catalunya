@@ -2,7 +2,7 @@ import type { Language } from "./types";
 
 const copy = {
   ca: {
-    welcome: "🎉 <b>FestaBot Catalunya</b>\n\nTroba festes, concerts i plans culturals sense sortir de Telegram. No deso la teva ubicació exacta.",
+    welcome: "🎉 <b>FestaBot Catalunya</b>\n\nTroba festes, concerts i plans culturals sense sortir de Telegram. Escriu només un municipi, per exemple <code>Blanes</code>, i si hi ha Festa Major et mostraré aquí el programa publicat. No deso la teva ubicació exacta.",
     chooseLanguage: "Tria idioma / Elige idioma:",
     askLocation: "📍 Envia'm la ubicació només per calcular els plans a prop. La descartaré després de la consulta. També pots escriure <code>/municipi Terrassa</code>.",
     noResults: "No he trobat cap pla amb aquests filtres. Prova un altre municipi o amplia la cerca.",
@@ -10,6 +10,13 @@ const copy = {
     resultsTitle: "Plans que et poden encaixar",
     longSchedule: "consulta l'horari concret",
     details: "Detalls",
+    program: "📋 Programa",
+    refresh: "🔄 Actualitza",
+    previous: "← Anterior",
+    next: "Següent →",
+    programRefreshed: "Programa comprovat de nou",
+    noProgram: "Encara no hi ha cap programa oficial de Festa Major publicat per a aquest municipi. Ho tornaré a comprovar quan ho demanis.",
+    missingProgram: "Escriu el municipi. Exemple: <code>/programa Blanes</code>. També pots escriure directament <code>programa Blanes</code>.",
     remind: "🔔 Recorda-m'ho",
     report: "⚠️ Corregir",
     reminderSaved: "T'avisaré el vespre anterior. Si l'activitat ja ha començat, t'avisaré d'aquí a una hora.",
@@ -24,7 +31,7 @@ const copy = {
     error: "Ara mateix la font oficial no respon. Torna-ho a provar d'aquí a uns minuts."
   },
   es: {
-    welcome: "🎉 <b>FestaBot Catalunya</b>\n\nEncuentra fiestas, conciertos y planes culturales sin salir de Telegram. No guardo tu ubicación exacta.",
+    welcome: "🎉 <b>FestaBot Catalunya</b>\n\nEncuentra fiestas, conciertos y planes culturales sin salir de Telegram. Escribe solo un municipio, por ejemplo <code>Blanes</code>, y si hay Fiesta Mayor te mostraré aquí el programa publicado. No guardo tu ubicación exacta.",
     chooseLanguage: "Tria idioma / Elige idioma:",
     askLocation: "📍 Envíame la ubicación solo para calcular planes cercanos. La descartaré después de la consulta. También puedes escribir <code>/municipi Terrassa</code>.",
     noResults: "No he encontrado ningún plan con esos filtros. Prueba otro municipio o amplía la búsqueda.",
@@ -32,6 +39,13 @@ const copy = {
     resultsTitle: "Planes que pueden encajarte",
     longSchedule: "consulta el horario concreto",
     details: "Detalles",
+    program: "📋 Programa",
+    refresh: "🔄 Actualizar",
+    previous: "← Anterior",
+    next: "Siguiente →",
+    programRefreshed: "Programa comprobado de nuevo",
+    noProgram: "Todavía no hay un programa oficial de Fiesta Mayor publicado para este municipio. Volveré a comprobarlo cuando lo pidas.",
+    missingProgram: "Escribe el municipio. Ejemplo: <code>/programa Blanes</code>. También puedes escribir directamente <code>programa Blanes</code>.",
     remind: "🔔 Recuérdamelo",
     report: "⚠️ Corregir",
     reminderSaved: "Te avisaré la tarde anterior. Si la actividad ya ha comenzado, te avisaré dentro de una hora.",

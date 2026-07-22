@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { answerInlineQuery, sendMessage, TelegramApiError } from "../src/services/telegram";
+import { answerInlineQuery, editMessageText, sendMessage, TelegramApiError } from "../src/services/telegram";
 import type { Env } from "../src/types";
 
 const env = { TELEGRAM_BOT_TOKEN: "test-token" } as Env;
@@ -48,5 +48,27 @@ describe("Telegram API boundary", () => {
     expect(error).toBeInstanceOf(TelegramApiError);
     expect((error as TelegramApiError).errorCode).toBe(429);
     expect((error as TelegramApiError).retryAfterSeconds).toBe(17);
+  });
+
+  it("edits a program page with HTML and its inline navigation", async () => {
+    let method = "";
+    let payload: Record<string, unknown> = {};
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      method = String(input).split("/").at(-1) ?? "";
+      payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return Response.json({ ok: true, result: { message_id: 7 } });
+    }));
+
+    await editMessageText(env, 10, 7, "<b>Programa</b>", {
+      inline_keyboard: [[{ text: "Següent", callback_data: "p:2026071300004:1" }]]
+    });
+
+    expect(method).toBe("editMessageText");
+    expect(payload).toMatchObject({
+      chat_id: 10,
+      message_id: 7,
+      text: "<b>Programa</b>",
+      parse_mode: "HTML"
+    });
   });
 });

@@ -40,6 +40,41 @@ function boundedText(value: string | undefined, maxLength: number): string | und
   return text ? text.slice(0, maxLength) : undefined;
 }
 
+function decodeHtmlEntities(value: string): string {
+  const named: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    nbsp: " ",
+    quot: "\""
+  };
+  return value.replace(/&(?:#(\d+)|#x([0-9a-f]+)|([a-z]+));/gi, (entity, decimal, hexadecimal, name) => {
+    if (name) return named[String(name).toLowerCase()] ?? entity;
+    const codePoint = decimal ? Number(decimal) : Number.parseInt(String(hexadecimal), 16);
+    return Number.isInteger(codePoint) && codePoint > 0 && codePoint <= 0x10ffff
+      ? String.fromCodePoint(codePoint)
+      : entity;
+  });
+}
+
+function plainTextFromHtml(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const text = decodeHtmlEntities(value
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+    .replace(/<\s*li\b[^>]*>/gi, "\n• ")
+    .replace(/<\s*\/\s*(?:p|div|ul|ol|h[1-6])\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, " "))
+    .replace(/\r/g, "")
+    .replace(/[\t ]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return text || undefined;
+}
+
 function safeUrl(...values: Array<string | undefined>): string | undefined {
   for (const value of values) {
     if (!value) continue;
@@ -51,6 +86,39 @@ function safeUrl(...values: Array<string | undefined>): string | undefined {
     }
   }
   return undefined;
+}
+
+function programDocumentUrls(raw: SocrataEvent): string[] | undefined {
+  const candidates: string[] = [];
+  const eventYears = new Set([raw.data_inici?.slice(0, 4), raw.data_fi?.slice(0, 4)].filter(Boolean));
+  for (const match of raw.descripcio_html?.matchAll(/href\s*=\s*["']([^"']+)["']/gi) ?? []) {
+    if (match[1]) candidates.push(decodeHtmlEntities(match[1]));
+  }
+  if (raw.documents) candidates.push(raw.documents);
+
+  const urls = candidates.flatMap((candidate) => candidate.split(/[|\n]/))
+    .map((candidate) => candidate.trim())
+    .filter(Boolean)
+    .map((candidate) => {
+      try {
+        const url = new URL(candidate, "https://agenda.cultura.gencat.cat/");
+        if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
+        const hostname = url.hostname.toLowerCase();
+        if (url.username || url.password || hostname === "localhost" || hostname.endsWith(".local")
+          || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) return undefined;
+        const path = decodeURIComponent(url.pathname).toLowerCase();
+        const explicitYears = `${path}${url.search}`.match(/(?:19|20)\d{2}/g) ?? [];
+        if (explicitYears.length && eventYears.size && !explicitYears.some((year) => eventYears.has(year))) {
+          return undefined;
+        }
+        return path.endsWith(".pdf") || path.includes(".pdf/") ? url.toString() : undefined;
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((url): url is string => Boolean(url));
+  const unique = [...new Set(urls)].slice(0, 5);
+  return unique.length ? unique : undefined;
 }
 
 export function normalizeEvent(raw: SocrataEvent): EventItem | null {
@@ -72,6 +140,9 @@ export function normalizeEvent(raw: SocrataEvent): EventItem | null {
     sourceUpdatedAt: boundedText(raw.source_updated_at, 40),
     code: raw.codi,
     title,
+    subtitle: boundedText(raw.subt_tol, 500),
+    description: boundedText(plainTextFromHtml(raw.descripcio_html) ?? raw.descripcio, 20_000),
+    programDocumentUrls: programDocumentUrls(raw),
     startsAt: raw.data_inici,
     endsAt: raw.data_fi,
     schedule: boundedText(raw.horari, 1200),

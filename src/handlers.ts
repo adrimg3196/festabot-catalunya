@@ -1,12 +1,14 @@
-import { formatDateRange, nextSevenDaysWindow, reminderTimeFor, todayWindow, weekendWindow } from "./domain/date";
+import { formatDateRange, nextSevenDaysWindow, reminderTimeFor, todayWindow, upcomingWindow, weekendWindow } from "./domain/date";
 import { categoryLabel, escapeHtml, haversineKm } from "./domain/events";
+import { isFestaMajor, programPages } from "./domain/program";
 import { t } from "./i18n";
 import { cleanupCorrections, createCorrection, type CorrectionType } from "./repositories/corrections";
 import { claimDueReminders, cleanupReminders, createReminder, markReminderFailed, markReminderRetry, markReminderSent } from "./repositories/reminders";
 import { cleanupProcessedUpdates } from "./repositories/updates";
 import { deleteUserData, ensureUser, getLanguage, setLanguage } from "./repositories/users";
 import { agendaSourceUrl, getEventByReference, getEvents, isEventReference, type AgendaQuery } from "./services/agenda";
-import { answerCallbackQuery, answerInlineQuery, sendMessage, sendPoll, TelegramApiError } from "./services/telegram";
+import { getOfficialProgramDocument } from "./services/program-document";
+import { answerCallbackQuery, answerInlineQuery, editMessageText, sendMessage, sendPoll, TelegramApiError } from "./services/telegram";
 import type { Env, EventItem, Language, TelegramCallbackQuery, TelegramInlineQuery, TelegramMessage, TelegramUpdate } from "./types";
 
 function eventLine(event: EventItem, language: Language, index: number, origin?: { latitude: number; longitude: number }): string {
@@ -26,10 +28,13 @@ function resultKeyboard(events: EventItem[], language: Language, suggestedQuery:
   const labels = t(language);
   return {
     inline_keyboard: [
-      ...events.slice(0, 8).map((event, index) => [{
-        text: `${index + 1} · ${labels.details}`,
-        callback_data: `detail:${event.sourceRowId ?? event.code}`
-      }]),
+      ...events.slice(0, 8).map((event, index) => {
+        const showProgram = isFestaMajor(event);
+        return [{
+          text: `${index + 1} · ${showProgram ? labels.program : labels.details}`,
+          callback_data: showProgram ? `p:${event.code}:0` : `detail:${event.sourceRowId ?? event.code}`
+        }];
+      }),
       ...(showMore ? [[{
         text: language === "ca" ? "🔎 Més plans" : "🔎 Más planes",
         switch_inline_query_current_chat: suggestedQuery
@@ -49,7 +54,8 @@ function discoveryKeyboard(language: Language) {
       [
         { text: language === "ca" ? "🎵 Concerts" : "🎵 Conciertos", callback_data: "quick:concerts" },
         { text: language === "ca" ? "🎊 Festes majors" : "🎊 Fiestas mayores", callback_data: "quick:festes" }
-      ]
+      ],
+      [{ text: language === "ca" ? "📋 Veure un programa" : "📋 Ver un programa", callback_data: "quick:program" }]
     ]
   };
 }
@@ -127,6 +133,96 @@ function detailKeyboard(event: EventItem, language: Language) {
   };
 }
 
+function programKeyboard(
+  event: EventItem,
+  language: Language,
+  pageIndex: number,
+  pageCount: number,
+  programSourceUrl?: string
+) {
+  const labels = t(language);
+  const reference = event.code;
+  const navigation = [
+    ...(pageIndex > 0 ? [{ text: labels.previous, callback_data: `p:${reference}:${pageIndex - 1}` }] : []),
+    ...(pageIndex + 1 < pageCount ? [{ text: labels.next, callback_data: `p:${reference}:${pageIndex + 1}` }] : [])
+  ];
+  return {
+    inline_keyboard: [
+      ...(navigation.length ? [navigation] : []),
+      [{ text: labels.refresh, callback_data: `p:${reference}:${pageIndex}:r` }],
+      [
+        { text: labels.remind, callback_data: `rem:${reference}` },
+        { text: labels.report, callback_data: `report:${reference}` }
+      ],
+      ...(programSourceUrl || event.sourceUrl ? [[{
+        text: programSourceUrl
+          ? (language === "ca" ? "PDF oficial (opcional)" : "PDF oficial (opcional)")
+          : (language === "ca" ? "Font original (opcional)" : "Fuente original (opcional)"),
+        url: programSourceUrl ?? event.sourceUrl ?? agendaSourceUrl
+      }]] : [])
+    ]
+  };
+}
+
+function sortFestaPrograms(events: EventItem[], now = new Date()): EventItem[] {
+  const currentDay = todayWindow(now);
+  return [...events].sort((left, right) => {
+    const leftActive = left.startsAt <= currentDay.end && left.endsAt >= currentDay.start;
+    const rightActive = right.startsAt <= currentDay.end && right.endsAt >= currentDay.start;
+    if (leftActive !== rightActive) return leftActive ? -1 : 1;
+    return left.startsAt.localeCompare(right.startsAt) || right.sourceUpdatedAt?.localeCompare(left.sourceUpdatedAt ?? "") || 0;
+  });
+}
+
+type ProgramDelivery = "sent" | "missing" | "error";
+
+async function sendFestaProgram(
+  env: Env,
+  chatId: number,
+  language: Language,
+  municipality: string,
+  options: { fresh?: boolean; silentMissing?: boolean } = {}
+): Promise<ProgramDelivery> {
+  const labels = t(language);
+  try {
+    const candidates = sortFestaPrograms((await getEvents({
+      ...upcomingWindow(180),
+      municipality,
+      festaMajorOnly: true,
+      fresh: options.fresh,
+      limit: 200
+    })).filter(isFestaMajor));
+    const selected = candidates[0];
+    if (!selected) {
+      if (!options.silentMissing) await sendMessage(env, chatId, labels.noProgram);
+      return "missing";
+    }
+    const event = await getEventByReference(selected.code, { fresh: options.fresh });
+    if (!event || !isFestaMajor(event)) {
+      if (!options.silentMissing) await sendMessage(env, chatId, labels.noProgram);
+      return "missing";
+    }
+    const document = await getOfficialProgramDocument(env, event, { fresh: options.fresh });
+    const pages = programPages(event, language, new Date(), document ?? undefined);
+    await sendMessage(
+      env,
+      chatId,
+      pages[0] ?? labels.noProgram,
+      programKeyboard(event, language, 0, pages.length, document?.sourceUrl)
+    );
+    return "sent";
+  } catch (error) {
+    console.error("Festa program query failed", { error: String(error) });
+    await sendMessage(env, chatId, labels.error);
+    return "error";
+  }
+}
+
+function explicitProgramMunicipality(text: string): string | undefined {
+  const match = text.match(/^(?:programa(?:ci[oó]|ci[oó]n)?|festa\s+major|fiesta\s+mayor)(?:\s+de)?\s+(.{1,80})$/i);
+  return match?.[1]?.trim() || undefined;
+}
+
 async function handleCommand(env: Env, message: TelegramMessage, language: Language, command: string, argument: string): Promise<void> {
   const labels = t(language);
   const userId = message.from?.id;
@@ -155,8 +251,24 @@ async function handleCommand(env: Env, message: TelegramMessage, language: Langu
       await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), municipality: argument || undefined, musicOnly: true, limit: 800 });
       return;
     case "festes":
-    case "fiestas":
+    case "fiestas": {
+      if (argument) {
+        const delivery = await sendFestaProgram(env, message.chat.id, language, argument, { fresh: true, silentMissing: true });
+        if (delivery !== "missing") return;
+      }
       await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), municipality: argument || undefined, festiveOnly: true, limit: 800 });
+      return;
+    }
+    case "programa":
+    case "programacio":
+    case "programació":
+    case "programacion":
+    case "programación":
+      if (!argument) {
+        await sendMessage(env, message.chat.id, labels.missingProgram);
+        return;
+      }
+      await sendFestaProgram(env, message.chat.id, language, argument, { fresh: true });
       return;
     case "artista":
     case "artist":
@@ -211,10 +323,10 @@ async function handleCommand(env: Env, message: TelegramMessage, language: Langu
     case "help":
     case "ajuda":
     case "ayuda":
-      await sendMessage(env, message.chat.id, `${labels.welcome}\n\n/avui · /capdesetmana · /aprop · /municipi · /concerts · /festes · /artista · /pla · /privacitat`, discoveryKeyboard(language));
+      await sendMessage(env, message.chat.id, `${labels.welcome}\n\n/avui · /capdesetmana · /aprop · /municipi · /concerts · /festes · /programa · /artista · /pla · /privacitat`, discoveryKeyboard(language));
       return;
     default:
-      await sendMessage(env, message.chat.id, `${labels.welcome}\n\n/avui · /capdesetmana · /aprop · /municipi · /concerts · /festes · /artista · /pla`, discoveryKeyboard(language));
+      await sendMessage(env, message.chat.id, `${labels.welcome}\n\n/avui · /capdesetmana · /aprop · /municipi · /concerts · /festes · /programa · /artista · /pla`, discoveryKeyboard(language));
   }
 }
 
@@ -250,7 +362,19 @@ async function handleMessage(env: Env, message: TelegramMessage): Promise<void> 
     return;
   }
 
+  const requestedProgram = explicitProgramMunicipality(text);
+  if (requestedProgram) {
+    await sendFestaProgram(env, message.chat.id, language, requestedProgram, { fresh: true });
+    return;
+  }
+  if (/^(?:programa(?:ci[oó]|ci[oó]n)?|festa\s+major|fiesta\s+mayor)$/i.test(text)) {
+    await sendMessage(env, message.chat.id, labels.missingProgram);
+    return;
+  }
+
   if (text.length <= 80) {
+    const programDelivery = await sendFestaProgram(env, message.chat.id, language, text, { silentMissing: true });
+    if (programDelivery !== "missing") return;
     await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), query: text, limit: 1000 });
     return;
   }
@@ -284,18 +408,20 @@ async function handleCallback(env: Env, callback: TelegramCallbackQuery): Promis
       await sendResults(env, chatId, language, { ...nextSevenDaysWindow(), musicOnly: true, limit: 1000 });
     } else if (quickAction === "festes") {
       await sendResults(env, chatId, language, { ...nextSevenDaysWindow(), festiveOnly: true, limit: 1000 });
+    } else if (quickAction === "program") {
+      await sendMessage(env, chatId, labels.missingProgram);
     }
     return;
   }
 
-  const [action, reference, extra] = data.split(":");
+  const [action, reference, extra, flag] = data.split(":");
   if (!reference || !isEventReference(reference)) {
     await answerCallbackQuery(env, callback.id);
     return;
   }
   let event: EventItem | null;
   try {
-    event = await getEventByReference(reference);
+    event = await getEventByReference(reference, { fresh: action === "p" && flag === "r" });
   } catch (error) {
     console.error("Agenda detail query failed", { error: String(error) });
     await answerCallbackQuery(env, callback.id, labels.error);
@@ -303,6 +429,44 @@ async function handleCallback(env: Env, callback: TelegramCallbackQuery): Promis
   }
   if (!event) {
     await answerCallbackQuery(env, callback.id, labels.noResults);
+    return;
+  }
+
+  if (action === "p") {
+    const requestedPage = Number.parseInt(extra ?? "0", 10);
+    if (!isFestaMajor(event)) {
+      await answerCallbackQuery(env, callback.id, labels.noProgram);
+      return;
+    }
+    const document = await getOfficialProgramDocument(env, event, { fresh: flag === "r" });
+    const pages = programPages(event, language, new Date(), document ?? undefined);
+    const pageIndex = Number.isSafeInteger(requestedPage)
+      ? Math.min(Math.max(requestedPage, 0), Math.max(0, pages.length - 1))
+      : 0;
+    await answerCallbackQuery(env, callback.id, flag === "r" ? labels.programRefreshed : undefined);
+    if (chatId && callback.message?.message_id) {
+      try {
+        await editMessageText(
+          env,
+          chatId,
+          callback.message.message_id,
+          pages[pageIndex] ?? labels.noProgram,
+          programKeyboard(event, language, pageIndex, pages.length, document?.sourceUrl)
+        );
+      } catch (error) {
+        const unchanged = error instanceof TelegramApiError
+          && error.errorCode === 400
+          && /message is not modified/i.test(error.message);
+        if (!unchanged) throw error;
+      }
+    } else if (chatId) {
+      await sendMessage(
+        env,
+        chatId,
+        pages[pageIndex] ?? labels.noProgram,
+        programKeyboard(event, language, pageIndex, pages.length, document?.sourceUrl)
+      );
+    }
     return;
   }
 

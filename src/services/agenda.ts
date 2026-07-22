@@ -3,7 +3,7 @@ import type { EventItem, SocrataEvent } from "../types";
 
 const DATASET_ENDPOINT = "https://analisi.transparenciacatalunya.cat/resource/rhpv-yr4f.json";
 const CATALONIA_CONDITION = "(municipi like 'agenda:ubicacions/barcelona/%' OR municipi like 'agenda:ubicacions/girona/%' OR municipi like 'agenda:ubicacions/lleida/%' OR municipi like 'agenda:ubicacions/tarragona/%')";
-const SELECT_FIELDS = [
+const BASE_SELECT_FIELD_NAMES = [
   ":id as source_row_id",
   ":updated_at as source_updated_at",
   "codi",
@@ -27,12 +27,22 @@ const SELECT_FIELDS = [
   "enllac1_url",
   "linkbotoentrades",
   "entrades"
+];
+const BASE_SELECT_FIELDS = BASE_SELECT_FIELD_NAMES.join(",");
+const DETAIL_SELECT_FIELDS = [
+  ...BASE_SELECT_FIELD_NAMES,
+  "subt_tol",
+  "descripcio",
+  "descripcio_html",
+  "documents"
 ].join(",");
 
 export interface AgendaQuery extends RankContext {
   municipality?: string;
   musicOnly?: boolean;
   festiveOnly?: boolean;
+  festaMajorOnly?: boolean;
+  fresh?: boolean;
   limit?: number;
 }
 
@@ -80,7 +90,9 @@ export async function getEvents(query: AgendaQuery): Promise<EventItem[]> {
     conditions.push("(tags_mbits like '%/musica%' OR tags_categor_es like '%/concerts%')");
   }
 
-  if (query.festiveOnly) {
+  if (query.festaMajorOnly) {
+    conditions.push("(lower(denominaci) like 'festa major%' OR lower(denominaci) like 'festes majors%' OR lower(denominaci) like 'la festa major%' OR lower(denominaci) like 'fiesta mayor%' OR lower(denominaci) like '% - festa major%' OR lower(denominaci) like '% – festa major%' OR lower(denominaci) like 'les santes%' OR lower(denominaci) like 'festes de la mercè%')");
+  } else if (query.festiveOnly) {
     conditions.push("(lower(denominaci) like '%festa major%' OR lower(denominaci) like '%fiesta mayor%' OR tags_categor_es like '%/festes%')");
   }
 
@@ -99,14 +111,14 @@ export async function getEvents(query: AgendaQuery): Promise<EventItem[]> {
   }
 
   const params = new URLSearchParams({
-    "$select": SELECT_FIELDS,
+    "$select": BASE_SELECT_FIELDS,
     "$where": conditions.join(" AND "),
-    "$order": "data_creacio DESC",
+    "$order": query.festaMajorOnly ? "data_inici ASC, :updated_at DESC" : "data_creacio DESC",
     "$limit": String(Math.min(Math.max(query.limit ?? 500, 1), 1000))
   });
   const response = await fetch(`${DATASET_ENDPOINT}?${params.toString()}`, {
     headers: { Accept: "application/json" },
-    cf: { cacheEverything: true, cacheTtl: 900 },
+    cf: { cacheEverything: true, cacheTtl: query.fresh ? 0 : 300 },
     signal: AbortSignal.timeout(6_000)
   });
 
@@ -129,20 +141,24 @@ export function isEventReference(value: string): boolean {
   return /^(?:\d{5,20}|row-[A-Za-z0-9._~-]{5,50})$/.test(value);
 }
 
-export async function getEventByReference(reference: string): Promise<EventItem | null> {
+export async function getEventByReference(
+  reference: string,
+  options: { fresh?: boolean } = {}
+): Promise<EventItem | null> {
   if (!isEventReference(reference)) return null;
   const referenceCondition = reference.startsWith("row-")
     ? `:id = '${escapeLiteral(reference)}'`
     : `codi = ${reference}`;
   const where = `${referenceCondition} AND ${CATALONIA_CONDITION}`;
   const params = new URLSearchParams({
-    "$select": SELECT_FIELDS,
+    "$select": DETAIL_SELECT_FIELDS,
     "$where": where,
+    "$order": ":updated_at DESC",
     "$limit": "20"
   });
   const response = await fetch(`${DATASET_ENDPOINT}?${params.toString()}`, {
     headers: { Accept: "application/json" },
-    cf: { cacheEverything: true, cacheTtl: 1800 },
+    cf: { cacheEverything: true, cacheTtl: options.fresh ? 0 : 60 },
     signal: AbortSignal.timeout(6_000)
   });
   if (!response.ok) throw new Error(`Agenda API returned ${response.status}`);

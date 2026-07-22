@@ -73,6 +73,23 @@ export async function sendMessage(
   });
 }
 
+export async function editMessageText(
+  env: Env,
+  chatId: number | string,
+  messageId: number,
+  text: string,
+  replyMarkup?: ReplyMarkup
+): Promise<unknown> {
+  return telegramCall(env, "editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text: safeMessageText(text),
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+  });
+}
+
 export async function answerCallbackQuery(env: Env, callbackQueryId: string, text?: string): Promise<unknown> {
   return telegramCall(env, "answerCallbackQuery", {
     callback_query_id: callbackQueryId,
@@ -119,6 +136,7 @@ export async function configureTelegramBot(env: Env, webhookUrl: string): Promis
       { command: "municipi", description: "Cercar per municipi" },
       { command: "concerts", description: "Música i concerts" },
       { command: "festes", description: "Festes majors" },
+      { command: "programa", description: "Programa d'una festa major" },
       { command: "artista", description: "Cercar artista o títol" },
       { command: "pla", description: "Crear una votació de plans" },
       { command: "privacitat", description: "Privacitat i dades" },
@@ -135,6 +153,7 @@ export async function configureTelegramBot(env: Env, webhookUrl: string): Promis
       { command: "municipio", description: "Buscar por municipio" },
       { command: "conciertos", description: "Conciertos" },
       { command: "fiestas", description: "Fiestas mayores" },
+      { command: "programa", description: "Programa de una fiesta mayor" },
       { command: "artista", description: "Buscar artista o título" },
       { command: "plan", description: "Crear una votación de planes" },
       { command: "privacidad", description: "Privacidad y datos" },

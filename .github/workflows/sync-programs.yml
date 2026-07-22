@@ -1,0 +1,29 @@
+name: Sync official Festa Major programs
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-official-programs
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run sync:programs
+        env:
+          PROGRAM_SYNC_ENDPOINT: https://festabot-catalunya.adrimg3196.workers.dev/internal/programs/sync
+          PROGRAM_SYNC_SECRET: ${{ secrets.PROGRAM_SYNC_SECRET }}

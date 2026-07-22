@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addCalendarDays, madridDateString, todayWindow, weekendWindow } from "../src/domain/date";
+import { addCalendarDays, madridDateString, todayWindow, upcomingWindow, weekendWindow } from "../src/domain/date";
 
 describe("date windows", () => {
   it("uses the Madrid calendar day", () => {
@@ -27,5 +27,11 @@ describe("date windows", () => {
   it("adds days across month boundaries", () => {
     expect(addCalendarDays("2026-07-31", 1)).toBe("2026-08-01");
   });
-});
 
+  it("builds a bounded window for upcoming Festa Major programs", () => {
+    expect(upcomingWindow(3, new Date("2026-07-22T10:00:00Z"))).toEqual({
+      start: "2026-07-22T00:00:00.000",
+      end: "2026-07-24T23:59:59.999"
+    });
+  });
+});

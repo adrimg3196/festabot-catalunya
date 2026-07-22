@@ -9,7 +9,49 @@ function isSafeId(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value);
 }
 
-function isValidUpdate(update: TelegramUpdate): boolean {
+interface ProgramSyncRequest {
+  eventCode: string;
+  sourceUrl: string;
+  sourceUpdatedAt?: string;
+  text: string;
+}
+
+function secretsMatch(supplied: string, expected: string): boolean {
+  const suppliedBytes = new TextEncoder().encode(supplied);
+  const expectedBytes = new TextEncoder().encode(expected);
+  let difference = suppliedBytes.byteLength ^ expectedBytes.byteLength;
+  const length = Math.max(suppliedBytes.byteLength, expectedBytes.byteLength);
+  for (let index = 0; index < length; index += 1) {
+    difference |= (suppliedBytes[index] ?? 0) ^ (expectedBytes[index] ?? 0);
+  }
+  return difference === 0;
+}
+
+export function isValidProgramSync(value: unknown): value is ProgramSyncRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Partial<ProgramSyncRequest>;
+  if (typeof candidate.eventCode !== "string" || !/^\d{5,20}$/.test(candidate.eventCode)) return false;
+  if (typeof candidate.text !== "string" || candidate.text.length < 200 || candidate.text.length > 180_000) return false;
+  if (candidate.sourceUpdatedAt !== undefined
+    && (typeof candidate.sourceUpdatedAt !== "string" || candidate.sourceUpdatedAt.length > 80)) return false;
+  if (typeof candidate.sourceUrl !== "string" || candidate.sourceUrl.length > 2_000) return false;
+  try {
+    const source = new URL(candidate.sourceUrl);
+    const hostname = source.hostname.toLowerCase();
+    const path = decodeURIComponent(source.pathname).toLowerCase();
+    return (source.protocol === "https:" || source.protocol === "http:")
+      && !source.username
+      && !source.password
+      && hostname !== "localhost"
+      && !hostname.endsWith(".local")
+      && !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)
+      && (path.endsWith(".pdf") || path.includes(".pdf/"));
+  } catch {
+    return false;
+  }
+}
+
+export function isValidUpdate(update: TelegramUpdate): boolean {
   if (!update || typeof update !== "object" || Array.isArray(update)) return false;
   if (!isSafeId(update.update_id) || update.update_id < 0) return false;
   if (update.message) {
@@ -25,7 +67,8 @@ function isValidUpdate(update: TelegramUpdate): boolean {
   if (update.callback_query) {
     if (typeof update.callback_query.id !== "string" || update.callback_query.id.length > 256
       || !isSafeId(update.callback_query.from?.id)
-      || (update.callback_query.data !== undefined && (typeof update.callback_query.data !== "string" || update.callback_query.data.length > 64))) return false;
+      || (update.callback_query.data !== undefined && (typeof update.callback_query.data !== "string"
+        || new TextEncoder().encode(update.callback_query.data).byteLength > 64))) return false;
   }
   if (update.inline_query) {
     if (typeof update.inline_query.id !== "string" || update.inline_query.id.length > 256
@@ -47,6 +90,48 @@ app.get("/", (context) => context.json({
 }));
 
 app.get("/health", (context) => context.json({ ok: true }));
+
+app.post("/internal/programs/sync", async (context) => {
+  const expectedSecret = context.env.PROGRAM_SYNC_SECRET;
+  if (!expectedSecret) return context.json({ ok: false }, 404);
+  const authorization = context.req.header("Authorization") ?? "";
+  if (!authorization.startsWith("Bearer ")
+    || !secretsMatch(authorization.slice("Bearer ".length), expectedSecret)) {
+    return context.json({ ok: false }, 403);
+  }
+  if (!context.req.header("Content-Type")?.toLowerCase().includes("application/json")) {
+    return context.json({ ok: false }, 415);
+  }
+  const declaredLength = Number(context.req.header("Content-Length") ?? "0");
+  if (declaredLength > 250_000) return context.json({ ok: false }, 413);
+
+  let payload: unknown;
+  try {
+    const body = await context.req.raw.arrayBuffer();
+    if (body.byteLength > 250_000) return context.json({ ok: false }, 413);
+    payload = JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return context.json({ ok: false }, 400);
+  }
+  if (!isValidProgramSync(payload)) return context.json({ ok: false }, 400);
+
+  await context.env.DB.prepare(`
+    INSERT INTO program_documents (event_code, source_url, source_updated_at, text, extracted_at)
+    VALUES (?1, ?2, ?3, ?4, ?5)
+    ON CONFLICT(event_code) DO UPDATE SET
+      source_url = excluded.source_url,
+      source_updated_at = excluded.source_updated_at,
+      text = excluded.text,
+      extracted_at = excluded.extracted_at
+  `).bind(
+    payload.eventCode,
+    payload.sourceUrl,
+    payload.sourceUpdatedAt ?? "",
+    payload.text,
+    new Date().toISOString()
+  ).run();
+  return context.json({ ok: true });
+});
 
 app.post("/telegram/webhook", async (context) => {
   const suppliedSecret = context.req.header("X-Telegram-Bot-Api-Secret-Token");
