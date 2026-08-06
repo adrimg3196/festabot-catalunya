@@ -1,4 +1,5 @@
 import { normalizeEvent, municipalitySlug, rankEvents, type RankContext } from "../domain/events";
+import { FESTA_MAJOR_TITLE_CONDITION } from "../festa-major-condition.js";
 import type { EventItem, SocrataEvent } from "../types";
 
 const DATASET_ENDPOINT = "https://analisi.transparenciacatalunya.cat/resource/rhpv-yr4f.json";
@@ -91,7 +92,7 @@ export async function getEvents(query: AgendaQuery): Promise<EventItem[]> {
   }
 
   if (query.festaMajorOnly) {
-    conditions.push("(lower(denominaci) like 'festa major%' OR lower(denominaci) like 'festes majors%' OR lower(denominaci) like 'la festa major%' OR lower(denominaci) like 'fiesta mayor%' OR lower(denominaci) like '% - festa major%' OR lower(denominaci) like '% – festa major%' OR lower(denominaci) like 'les santes%' OR lower(denominaci) like 'festes de la mercè%')");
+    conditions.push(FESTA_MAJOR_TITLE_CONDITION);
   } else if (query.festiveOnly) {
     conditions.push("(lower(denominaci) like '%festa major%' OR lower(denominaci) like '%fiesta mayor%' OR tags_categor_es like '%/festes%')");
   }

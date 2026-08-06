@@ -1,4 +1,5 @@
 import { extractText, getDocumentProxy } from "unpdf";
+import { FESTA_MAJOR_TITLE_CONDITION } from "../src/festa-major-condition.js";
 
 const DATASET_ENDPOINT = "https://analisi.transparenciacatalunya.cat/resource/rhpv-yr4f.json";
 const DEFAULT_SYNC_ENDPOINT = "https://festabot-catalunya.adrimg3196.workers.dev/internal/programs/sync";
@@ -88,7 +89,7 @@ async function extractProgram(sourceUrl) {
 async function upcomingFestas() {
   const start = madridDateString();
   const end = addDays(start, 179);
-  const titleCondition = "(lower(denominaci) like 'festa major%' OR lower(denominaci) like 'festes majors%' OR lower(denominaci) like 'la festa major%' OR lower(denominaci) like 'fiesta mayor%' OR lower(denominaci) like '% - festa major%' OR lower(denominaci) like '% – festa major%' OR lower(denominaci) like 'les santes%' OR lower(denominaci) like 'festes de la mercè%')";
+  const titleCondition = FESTA_MAJOR_TITLE_CONDITION;
   const cataloniaCondition = "(municipi like 'agenda:ubicacions/barcelona/%' OR municipi like 'agenda:ubicacions/girona/%' OR municipi like 'agenda:ubicacions/lleida/%' OR municipi like 'agenda:ubicacions/tarragona/%')";
   const params = new URLSearchParams({
     "$select": ":updated_at as source_updated_at,codi,denominaci,data_inici,data_fi,descripcio_html,documents",

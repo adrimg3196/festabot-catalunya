@@ -26,7 +26,6 @@ export async function deleteUserData(env: Env, telegramId: number): Promise<void
   const id = String(telegramId);
   await env.DB.batch([
     env.DB.prepare("DELETE FROM reminders WHERE telegram_id = ?").bind(id),
-    env.DB.prepare("DELETE FROM follows WHERE telegram_id = ?").bind(id),
     env.DB.prepare("DELETE FROM corrections WHERE telegram_id = ?").bind(id),
     env.DB.prepare("DELETE FROM users WHERE telegram_id = ?").bind(id)
   ]);
