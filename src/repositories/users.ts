@@ -32,3 +32,20 @@ export async function deleteUserData(env: Env, telegramId: number): Promise<void
   ]);
 }
 
+export async function setHomeMunicipality(env: Env, telegramId: number, municipality: string): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO users (telegram_id, language, home_municipality)
+     VALUES (?, 'ca', ?)
+     ON CONFLICT(telegram_id) DO UPDATE SET home_municipality = excluded.home_municipality, updated_at = CURRENT_TIMESTAMP`
+  ).bind(String(telegramId), municipality.slice(0, 120)).run();
+}
+
+export async function getUserPreferences(env: Env, telegramId: number): Promise<{ homeMunicipality?: string; radiusKm: number }> {
+  const row = await env.DB.prepare(
+    "SELECT home_municipality, radius_km FROM users WHERE telegram_id = ?"
+  ).bind(String(telegramId)).first<{ home_municipality?: string; radius_km?: number }>();
+  const radiusRaw = Number(row?.radius_km ?? 25);
+  const radiusKm = Number.isFinite(radiusRaw) ? Math.min(100, Math.max(5, radiusRaw)) : 25;
+  return { homeMunicipality: row?.home_municipality ?? undefined, radiusKm };
+}
+
