@@ -36,3 +36,25 @@ Missatge ràpid per a grups de Telegram de cada poble
 
 🎊 Novetat: @FestaCatalunyaBot us avisa de les festes i concerts del poble.
 Poseu /aprop i envieu la vostra ubicació per veure què hi ha a prop. Proveu-lo!
+
+================================================================
+
+CHECKLIST DE LANÇAMENT (2 minuts)
+=================================
+
+1. X / Twitter: copia "Opció 1" i enganxa'l al teu perfil.
+   Afegeix una imatge del bot o del poble si en tens.
+2. Facebook: entra als grups "Festes de [poble]" / "Què fer a [comarca]"
+   i enganxa el missatge de Facebook.
+3. Reddit: publica a r/catalunya (i r/Barcelona si vols).
+4. Grups de Telegram: busca "X Municipi" / "Agenda cultural [comarca]"
+   i enganxa el missatge ràpid per poble.
+5. Google Search Console (indexació):
+   - Ves a https://search.google.com/search-console
+   - Afegeix https://festabot-catalunya.adrimg3196.workers.dev
+   - A "Sitemap": envia https://festabot-catalunya.adrimg3196.workers.dev/sitemap.xml
+6. BotFather (si encara no ho has fet):
+   TELEGRAM_BOT_TOKEN=*** TELEGRAM_WEBHOOK_SECRET=*** npm run setup:bot
+
+Deep link d'arrenada (sempre posa'l): https://t.me/FestaCatalunyaBot?start=cat
+
