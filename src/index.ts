@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { handleUpdate, sendDueReminders } from "./handlers";
+import { configureTelegramBot } from "./services/telegram";
 import { claimUpdate, markUpdateDone, releaseUpdate } from "./repositories/updates";
 import type { Env, TelegramUpdate } from "./types";
 
@@ -133,6 +134,25 @@ app.post("/internal/programs/sync", async (context) => {
   return context.json({ ok: true });
 });
 
+app.post("/internal/configure", async (context) => {
+  const expectedSecret = context.env.PROGRAM_SYNC_SECRET;
+  if (!expectedSecret) return context.json({ ok: false }, 404);
+  const authorization = context.req.header("Authorization") ?? "";
+  if (!authorization.startsWith("Bearer ")
+    || !secretsMatch(authorization.slice("Bearer ".length), expectedSecret)) {
+    return context.json({ ok: false }, 403);
+  }
+  const base = new URL(context.req.url);
+  const webhookUrl = `${base.protocol}//${base.host}/telegram/webhook`;
+  try {
+    await configureTelegramBot(context.env, webhookUrl);
+  } catch (error) {
+    console.error("Bot configuration failed", { error: String(error) });
+    return context.json({ ok: false }, 502);
+  }
+  return context.json({ ok: true });
+});
+
 app.post("/telegram/webhook", async (context) => {
   const suppliedSecret = context.req.header("X-Telegram-Bot-Api-Secret-Token");
   if (!suppliedSecret || suppliedSecret !== context.env.TELEGRAM_WEBHOOK_SECRET) {
@@ -193,6 +213,8 @@ app.onError((error, context) => {
   console.error("Unhandled request error", { error: String(error) });
   return context.json({ ok: false }, 500);
 });
+
+export { app };
 
 export default {
   fetch: app.fetch,
