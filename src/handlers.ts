@@ -1,11 +1,11 @@
 import { formatDateRange, nextSevenDaysWindow, reminderTimeFor, todayWindow, upcomingWindow, weekendWindow } from "./domain/date";
-import { categoryLabel, escapeHtml, haversineKm } from "./domain/events";
+import { categoryLabel, escapeHtml, haversineKm, municipalitySlug } from "./domain/events";
 import { isFestaMajor, programPages } from "./domain/program";
 import { t } from "./i18n";
 import { cleanupCorrections, createCorrection, type CorrectionType } from "./repositories/corrections";
 import { claimDueReminders, cleanupReminders, createReminder, markReminderFailed, markReminderRetry, markReminderSent } from "./repositories/reminders";
 import { cleanupProcessedUpdates } from "./repositories/updates";
-import { deleteUserData, ensureUser, getLanguage, setLanguage } from "./repositories/users";
+import { deleteUserData, ensureUser, getLanguage, getUserPreferences, setHomeMunicipality, setLanguage } from "./repositories/users";
 import { agendaSourceUrl, getEventByReference, getEvents, isEventReference, type AgendaQuery } from "./services/agenda";
 import { getOfficialProgramDocument } from "./services/program-document";
 import { answerCallbackQuery, answerInlineQuery, editMessageText, sendMessage, sendPoll, TelegramApiError } from "./services/telegram";
@@ -101,6 +101,43 @@ async function sendResults(
     )
   );
   return events;
+}
+
+async function sendNearby(
+  env: Env,
+  chatId: number,
+  language: Language,
+  origin: { latitude: number; longitude: number } | undefined,
+  userId?: number
+): Promise<void> {
+  if (origin) {
+    const radiusKm = userId ? (await getUserPreferences(env, userId)).radiusKm : 30;
+    await sendResults(env, chatId, language, {
+      ...nextSevenDaysWindow(),
+      latitude: origin.latitude,
+      longitude: origin.longitude,
+      radiusKm,
+      limit: 1000
+    }, origin);
+    return;
+  }
+  const labels = t(language);
+  if (!userId) {
+    await sendMessage(env, chatId, labels.askLocation, locationKeyboard(language));
+    return;
+  }
+  const prefs = await getUserPreferences(env, userId);
+  if (prefs.homeMunicipality) {
+    await sendMessage(env, chatId, labels.apropUsingHome.replace("%MUNICIPI%", prefs.homeMunicipality));
+    await sendResults(env, chatId, language, {
+      ...nextSevenDaysWindow(),
+      municipality: prefs.homeMunicipality,
+      radiusKm: prefs.radiusKm,
+      limit: 1000
+    });
+    return;
+  }
+  await sendMessage(env, chatId, labels.askLocation, locationKeyboard(language));
 }
 
 function detailText(event: EventItem, language: Language): string {
@@ -285,10 +322,12 @@ async function handleCommand(env: Env, message: TelegramMessage, language: Langu
         return;
       }
       await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), municipality: argument, limit: 1000 });
+      await setHomeMunicipality(env, userId, argument);
+      await sendMessage(env, message.chat.id, labels.homeSet.replace("%MUNICIPI%", argument));
       return;
     case "aprop":
     case "cerca":
-      await sendMessage(env, message.chat.id, labels.askLocation, locationKeyboard(language));
+      await sendNearby(env, message.chat.id, language, undefined, userId);
       return;
     case "pla":
     case "plan": {
@@ -343,13 +382,7 @@ async function handleMessage(env: Env, message: TelegramMessage): Promise<void> 
       await sendMessage(env, message.chat.id, labels.invalidLocation);
       return;
     }
-    await sendResults(env, message.chat.id, language, {
-      ...nextSevenDaysWindow(),
-      latitude: origin.latitude,
-      longitude: origin.longitude,
-      radiusKm: 30,
-      limit: 1000
-    }, origin);
+    await sendNearby(env, message.chat.id, language, origin, userId);
     return;
   }
 
@@ -374,8 +407,14 @@ async function handleMessage(env: Env, message: TelegramMessage): Promise<void> 
 
   if (text.length <= 80) {
     const programDelivery = await sendFestaProgram(env, message.chat.id, language, text, { silentMissing: true });
-    if (programDelivery !== "missing") return;
-    await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), query: text, limit: 1000 });
+    if (programDelivery !== "missing") {
+      if (municipalitySlug(text)) await setHomeMunicipality(env, userId, text);
+      return;
+    }
+    const events = await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), query: text, limit: 1000 });
+    if (events.length > 0 && municipalitySlug(text)) {
+      await setHomeMunicipality(env, userId, text);
+    }
     return;
   }
   await sendMessage(env, message.chat.id, labels.missingMunicipality);
@@ -401,7 +440,7 @@ async function handleCallback(env: Env, callback: TelegramCallbackQuery): Promis
     if (!chatId) return;
     const quickAction = data.slice("quick:".length);
     if (quickAction === "nearby") {
-      await sendMessage(env, chatId, labels.askLocation, locationKeyboard(language));
+      await sendNearby(env, chatId, language, undefined, userId);
     } else if (quickAction === "today") {
       await sendResults(env, chatId, language, { ...todayWindow(), limit: 1000 });
     } else if (quickAction === "concerts") {

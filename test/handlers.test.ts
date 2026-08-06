@@ -39,6 +39,8 @@ vi.mock("../src/repositories/users", () => ({
   deleteUserData: vi.fn(),
   ensureUser: vi.fn(),
   getLanguage: mocks.getLanguage,
+  getUserPreferences: vi.fn(),
+  setHomeMunicipality: vi.fn(),
   setLanguage: vi.fn()
 }));
 

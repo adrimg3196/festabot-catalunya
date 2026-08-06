@@ -28,7 +28,9 @@ const copy = {
     invalidLocation: "Aquesta ubicació no és vàlida. Torna-la a compartir des del botó de Telegram.",
     pollQuestion: "Quin pla fem?",
     reminderPrefix: "🔔 <b>Recordatori de festa</b>",
-    error: "Ara mateix la font oficial no respon. Torna-ho a provar d'aquí a uns minuts."
+    error: "Ara mateix la font oficial no respon. Torna-ho a provar d'aquí a uns minuts.",
+    homeSet: "He guardat <code>%MUNICIPI%</code> com a poble per defecte. Ara <code>/aprop</code> et mostrarà plans a prop sense compartir la teva ubicació.",
+    apropUsingHome: "📍 Plans a prop de %MUNICIPI% (no deso la teva ubicació):"
   },
   es: {
     welcome: "🎉 <b>FestaBot Catalunya</b>\n\nEncuentra fiestas, conciertos y planes culturales sin salir de Telegram. Escribe solo un municipio, por ejemplo <code>Blanes</code>, y si hay Fiesta Mayor te mostraré aquí el programa publicado. No guardo tu ubicación exacta.",
@@ -57,7 +59,9 @@ const copy = {
     invalidLocation: "Esa ubicación no es válida. Vuelve a compartirla desde el botón de Telegram.",
     pollQuestion: "¿Qué plan hacemos?",
     reminderPrefix: "🔔 <b>Recordatorio de fiesta</b>",
-    error: "Ahora mismo la fuente oficial no responde. Inténtalo de nuevo dentro de unos minutos."
+    error: "Ahora mismo la fuente oficial no responde. Inténtalo de nuevo dentro de unos minutos.",
+    homeSet: "He guardado <code>%MUNICIPI%</code> como pueblo por defecto. Ahora <code>/aprop</code> te mostrará planes cerca sin compartir tu ubicación.",
+    apropUsingHome: "📍 Planes cerca de %MUNICIPI% (no guardo tu ubicación):"
   }
 } as const;
 
