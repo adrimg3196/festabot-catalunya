@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { handleUpdate, sendDueReminders } from "./handlers";
 import { claimUpdate, markUpdateDone, releaseUpdate } from "./repositories/updates";
 import type { Env, TelegramUpdate } from "./types";
+import { LANDING_HTML } from "./landing";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -83,11 +84,24 @@ function updateActorId(update: TelegramUpdate): number | undefined {
   return update.callback_query?.from.id ?? update.inline_query?.from.id ?? update.message?.from?.id;
 }
 
-app.get("/", (context) => context.json({
-  ok: true,
-  service: "FestaBot Catalunya",
-  dataSource: "Agenda Cultural de Catalunya"
-}));
+app.get("/", (context) =>
+  context.html(LANDING_HTML, 200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "public, max-age=3600"
+  })
+);
+
+app.get("/sitemap.xml", (context) =>
+  context.text(
+    `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://festabot-catalunya.adrimg3196.workers.dev/</loc>
+    <changefreq>weekly</changefreq><priority>1.0</priority></url>
+</urlset>`,
+    200,
+    { "Content-Type": "application/xml; charset=utf-8" }
+  )
+);
 
 app.get("/health", (context) => context.json({ ok: true }));
 

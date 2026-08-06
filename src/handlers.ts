@@ -39,7 +39,8 @@ function resultKeyboard(events: EventItem[], language: Language, suggestedQuery:
         text: language === "ca" ? "🔎 Més plans" : "🔎 Más planes",
         switch_inline_query_current_chat: suggestedQuery
       }]] : []),
-      [{ text: language === "ca" ? "Compartir en un grup" : "Compartir en un grupo", switch_inline_query: suggestedQuery }]
+      [{ text: language === "ca" ? "Compartir en un grup" : "Compartir en un grupo", switch_inline_query: suggestedQuery }],
+      [{ text: language === "ca" ? "📲 Comparteix el bot" : "📲 Comparte el bot", url: "https://t.me/FestaCatalunyaBot?start=cat" }]
     ]
   };
 }
@@ -55,7 +56,8 @@ function discoveryKeyboard(language: Language) {
         { text: language === "ca" ? "🎵 Concerts" : "🎵 Conciertos", callback_data: "quick:concerts" },
         { text: language === "ca" ? "🎊 Festes majors" : "🎊 Fiestas mayores", callback_data: "quick:festes" }
       ],
-      [{ text: language === "ca" ? "📋 Veure un programa" : "📋 Ver un programa", callback_data: "quick:program" }]
+      [{ text: language === "ca" ? "📋 Veure un programa" : "📋 Ver un programa", callback_data: "quick:program" }],
+      [{ text: language === "ca" ? "📲 Comparteix el bot" : "📲 Comparte el bot", url: "https://t.me/FestaCatalunyaBot?start=cat" }]
     ]
   };
 }
