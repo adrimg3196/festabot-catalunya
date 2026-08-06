@@ -31,3 +31,26 @@ export async function deleteUserData(env: Env, telegramId: number): Promise<void
   ]);
 }
 
+export type LatLon = { latitude: number; longitude: number };
+
+export async function getLastLocation(env: Env, telegramId: number): Promise<LatLon | undefined> {
+  const row = await env.DB.prepare("SELECT last_location FROM users WHERE telegram_id = ?")
+    .bind(String(telegramId))
+    .first<{ last_location: string | null }>();
+  if (!row?.last_location) return undefined;
+  const parts = row.last_location.split(",");
+  const lat = Number(parts[0]);
+  const lon = Number(parts[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined;
+  return { latitude: lat, longitude: lon };
+}
+
+export async function setLastLocation(env: Env, telegramId: number, origin: LatLon): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO users (telegram_id, last_location) VALUES (?, ?)
+     ON CONFLICT(telegram_id) DO UPDATE SET last_location = excluded.last_location, updated_at = CURRENT_TIMESTAMP`
+  )
+    .bind(String(telegramId), `${origin.latitude},${origin.longitude}`)
+    .run();
+}
+

@@ -5,7 +5,7 @@ import { t } from "./i18n";
 import { cleanupCorrections, createCorrection, type CorrectionType } from "./repositories/corrections";
 import { claimDueReminders, cleanupReminders, createReminder, markReminderFailed, markReminderRetry, markReminderSent } from "./repositories/reminders";
 import { cleanupProcessedUpdates } from "./repositories/updates";
-import { deleteUserData, ensureUser, getLanguage, setLanguage } from "./repositories/users";
+import { deleteUserData, ensureUser, getLanguage, getLastLocation, setLastLocation, setLanguage } from "./repositories/users";
 import { agendaSourceUrl, getEventByReference, getEvents, isEventReference, type AgendaQuery } from "./services/agenda";
 import { getOfficialProgramDocument } from "./services/program-document";
 import { answerCallbackQuery, answerInlineQuery, editMessageText, sendMessage, sendPoll, TelegramApiError } from "./services/telegram";
@@ -241,13 +241,23 @@ async function handleCommand(env: Env, message: TelegramMessage, language: Langu
       });
       return;
     case "avui":
-    case "hoy":
-      await sendResults(env, message.chat.id, language, { ...todayWindow(), municipality: argument || undefined, limit: 1000 });
+    case "hoy": {
+      const origin = argument ? undefined : await getLastLocation(env, userId);
+      await sendResults(env, message.chat.id, language, {
+        ...todayWindow(), municipality: argument || undefined, limit: 1000,
+        latitude: origin?.latitude, longitude: origin?.longitude, radiusKm: origin ? 30 : undefined
+      }, origin);
       return;
+    }
     case "capdesetmana":
-    case "finde":
-      await sendResults(env, message.chat.id, language, { ...weekendWindow(), municipality: argument || undefined, limit: 700 });
+    case "finde": {
+      const origin = argument ? undefined : await getLastLocation(env, userId);
+      await sendResults(env, message.chat.id, language, {
+        ...weekendWindow(), municipality: argument || undefined, limit: 700,
+        latitude: origin?.latitude, longitude: origin?.longitude, radiusKm: origin ? 30 : undefined
+      }, origin);
       return;
+    }
     case "concerts":
     case "conciertos":
       await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), municipality: argument || undefined, musicOnly: true, limit: 800 });
@@ -345,6 +355,7 @@ async function handleMessage(env: Env, message: TelegramMessage): Promise<void> 
       await sendMessage(env, message.chat.id, labels.invalidLocation);
       return;
     }
+    await setLastLocation(env, userId, origin);
     await sendResults(env, message.chat.id, language, {
       ...nextSevenDaysWindow(),
       latitude: origin.latitude,
