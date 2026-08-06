@@ -12,6 +12,7 @@ const labels = {
     officialDocument: "Programa oficial",
     officialSummary: "Resum oficial publicat",
     extractedDocument: "Text extret del document oficial",
+    extracted: "Extret el",
     schedule: "Horari",
     source: "Font oficial: Agenda Cultural de Catalunya",
     sourceUpdated: "font actualitzada",
@@ -23,6 +24,7 @@ const labels = {
     officialDocument: "Programa oficial",
     officialSummary: "Resumen oficial publicado",
     extractedDocument: "Texto extraído del documento oficial",
+    extracted: "Extraído el",
     schedule: "Horario",
     source: "Fuente oficial: Agenda Cultural de Catalunya",
     sourceUpdated: "fuente actualizada",
@@ -97,6 +99,7 @@ export function splitProgramText(text: string, maxEscapedLength: number): string
 export interface ProgramDocumentContent {
   sourceUrl: string;
   text: string;
+  extractedAt?: string;
 }
 
 function programBody(event: EventItem, language: Language, document?: ProgramDocumentContent): string {
@@ -131,7 +134,10 @@ export function programPages(
     sourceUpdated ? `${copy.sourceUpdated}: ${sourceUpdated}` : undefined
   ].filter(Boolean).join(" · ");
   const documentNote = document ? `📄 <i>${copy.extractedDocument}</i>\n` : "";
-  const footer = `\n\n${freshness ? `🔄 <i>${escapeHtml(freshness)}</i>\n` : ""}${documentNote}<i>${copy.source}</i>`;
+  const extracted = document?.extractedAt
+    ? ` · 📄 ${copy.extracted} ${formatTimestamp(document.extractedAt, language)}`
+    : "";
+  const footer = `\n\n${freshness ? `🔄 <i>${escapeHtml(freshness)}</i>\n` : ""}${documentNote}${extracted}<i>${copy.source}</i>`;
   const baseHeader = `🎊 <b>${title}</b>${subtitle}\n📅 ${date}${place ? `\n📍 ${place}` : ""}\n\n`;
   const heading = document ? copy.officialDocument : copy.officialSummary;
   const worstPageHeading = `🗓 <b>${heading} · 999/999</b>\n\n`;
