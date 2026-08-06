@@ -135,9 +135,13 @@ export function programPages(
   ].filter(Boolean).join(" · ");
   const documentNote = document ? `📄 <i>${copy.extractedDocument}</i>\n` : "";
   const extracted = document?.extractedAt
-    ? ` · 📄 ${copy.extracted} ${formatTimestamp(document.extractedAt, language)}`
+    ? `${copy.extracted} ${formatTimestamp(document.extractedAt, language)}`
     : "";
-  const footer = `\n\n${freshness ? `🔄 <i>${escapeHtml(freshness)}</i>\n` : ""}${documentNote}${extracted}<i>${copy.source}</i>`;
+  const footerParts = [
+    freshness ? `🔄 ${escapeHtml(freshness)}` : "",
+    extracted ? `📄 ${extracted}` : ""
+  ].filter(Boolean);
+  const footer = `\n\n${footerParts.length ? `<i>${footerParts.join(" · ")}</i>\n` : ""}${documentNote}<i>${copy.source}</i>`;
   const baseHeader = `🎊 <b>${title}</b>${subtitle}\n📅 ${date}${place ? `\n📍 ${place}` : ""}\n\n`;
   const heading = document ? copy.officialDocument : copy.officialSummary;
   const worstPageHeading = `🗓 <b>${heading} · 999/999</b>\n\n`;
