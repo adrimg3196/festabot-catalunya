@@ -592,7 +592,9 @@ export async function sendDueReminders(env: Env): Promise<void> {
     }
   }
 
-  if (now.getUTCHours() === 2 && now.getUTCMinutes() < 5) {
+  // ponytail: runs across the whole 02:00 UTC hour; the cron is */5 so a trigger always
+  // lands, and the deletes are idempotent. Add a last-cleaned marker if write volume ever matters.
+  if (now.getUTCHours() === 2) {
     await Promise.all([cleanupReminders(env), cleanupCorrections(env), cleanupProcessedUpdates(env)]);
   }
 }
