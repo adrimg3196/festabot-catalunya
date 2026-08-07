@@ -140,6 +140,19 @@ async function sendNearby(
   await sendMessage(env, chatId, labels.askLocation, locationKeyboard(language));
 }
 
+// Validates `text` maps to a real municipality before persisting. Prevents P1:
+// getEvents({query}) matches titles/venues too, while municipalitySlug normalizes
+// any word — so "concert" would otherwise be saved as home. One network call.
+async function resolveMunicipality(env: Env, text: string): Promise<boolean> {
+  const slug = municipalitySlug(text);
+  if (!slug) return false;
+  const events = await getEvents({ ...nextSevenDaysWindow(), municipality: text, limit: 8 });
+  return events.some((event) => event.municipality && municipalitySlug(event.municipality) === slug);
+}
+
+// P2 (parked): /aprop-home ignores radiusKm when no coordinates — getEvents does
+// exact-municipality filter. Functional (in-bounds events), not data-loss.
+
 function detailText(event: EventItem, language: Language): string {
   const labels = t(language);
   const lines = [
@@ -321,9 +334,13 @@ async function handleCommand(env: Env, message: TelegramMessage, language: Langu
         await sendMessage(env, message.chat.id, labels.missingMunicipality);
         return;
       }
-      await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), municipality: argument, limit: 1000 });
-      await setHomeMunicipality(env, userId, argument);
-      await sendMessage(env, message.chat.id, labels.homeSet.replace("%MUNICIPI%", argument));
+      const municipiEvents = await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), municipality: argument, limit: 1000 });
+      if (municipiEvents.length > 0 && await resolveMunicipality(env, argument)) {
+        await setHomeMunicipality(env, userId, argument);
+        await sendMessage(env, message.chat.id, labels.homeSet.replace("%MUNICIPI%", argument));
+      } else {
+        await sendMessage(env, message.chat.id, labels.noResults);
+      }
       return;
     case "aprop":
     case "cerca":
@@ -408,11 +425,14 @@ async function handleMessage(env: Env, message: TelegramMessage): Promise<void> 
   if (text.length <= 80) {
     const programDelivery = await sendFestaProgram(env, message.chat.id, language, text, { silentMissing: true });
     if (programDelivery !== "missing") {
-      if (municipalitySlug(text)) await setHomeMunicipality(env, userId, text);
+      if (await resolveMunicipality(env, text)) {
+        await setHomeMunicipality(env, userId, text);
+        await sendMessage(env, message.chat.id, labels.homeSet.replace("%MUNICIPI%", text));
+      }
       return;
     }
     const events = await sendResults(env, message.chat.id, language, { ...nextSevenDaysWindow(), query: text, limit: 1000 });
-    if (events.length > 0 && municipalitySlug(text)) {
+    if (events.length > 0 && await resolveMunicipality(env, text)) {
       await setHomeMunicipality(env, userId, text);
     }
     return;
